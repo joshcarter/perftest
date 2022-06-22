@@ -1,0 +1,4 @@
+*.log
+file_writer
+main
+/.idea

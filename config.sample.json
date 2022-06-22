@@ -1,0 +1,13 @@
+{
+    "file": {
+        "paths": ["/tmp/runner1", "/tmp/runner2"],
+        "runners_per_path": 1
+    },
+    "bssplit": "4MB/25/mov:8MB/25/mp4:8KB/50/xml",
+    "iosize": "1MB",
+    "reporter": {
+        "interval": "1s",
+        "logbandwidth": true,
+        "loglatency": false
+    }
+}
