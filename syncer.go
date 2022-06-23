@@ -5,6 +5,22 @@ import (
 	"time"
 )
 
+type Syncer interface {
+	Sync(bw BlockWriter) error
+}
+
+type SyncNone struct{}
+
+func (s *SyncNone) Sync(_ BlockWriter) error {
+	return nil
+}
+
+type SyncInline struct{}
+
+func (s *SyncInline) Sync(bw BlockWriter) error {
+	return bw.Sync()
+}
+
 type SyncRequest struct {
 	bw BlockWriter
 	e  chan error

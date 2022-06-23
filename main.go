@@ -20,7 +20,7 @@ type Globals struct {
 	Reporter      *Reporter
 	RunnerInitFns []runnerInitFn
 	RunnerError   chan error
-	SyncBatcher   *SyncBatcher
+	Syncer        Syncer
 }
 
 var global = &Globals{
@@ -43,7 +43,7 @@ func main() {
 	viper.SetDefault("reporter.interval", "1s")
 	viper.SetDefault("compressibility", "50")
 
-	if err := viper.ReadInConfig(); err != nil {
+	if err = viper.ReadInConfig(); err != nil {
 		logger.Errorf("error reading config file: %s\n", err)
 		os.Exit(-1)
 	}
@@ -110,7 +110,7 @@ func main() {
 			logger.Infof("Control-C, stopping.")
 			goto stop
 
-		case err := <-global.RunnerError:
+		case err = <-global.RunnerError:
 			logger.Errorf("runner error: %s", err)
 			goto stop
 		}
@@ -145,17 +145,13 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 
 	iosize := viper.GetSizeInBytes("iosize")
 
-	var syncOpt SyncOpt = NoSync
 	switch viper.GetString("file.sync") {
-	case "close":
+	case "close", "inline":
 		logger.Infof("syncing on file close")
-		syncOpt = SyncOnClose
+		global.Syncer = &SyncInline{}
 	case "batch", "batched", "batcher":
 		logger.Infof("syncing in batches")
-		syncOpt = SyncBatched
-	}
 
-	if syncOpt == SyncBatched {
 		syncBatcherInterval := viper.GetDuration("sync_batcher.interval")
 		if syncBatcherInterval == 0 {
 			logger.Errorf("no sync_batcher interval specified; create 'sync_batcher.interval' in config.json")
@@ -168,7 +164,9 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 			os.Exit(-1)
 		}
 
-		global.SyncBatcher = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending)
+		global.Syncer = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending)
+	default:
+		global.Syncer = &SyncNone{}
 	}
 
 	for _, path := range paths {
@@ -179,7 +177,7 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 				return nil, fmt.Errorf("cannot init store: %s", err)
 			}
 
-			r, err := NewRunner(bs, int64(iosize), syncOpt)
+			r, err := NewRunner(bs, int64(iosize))
 
 			if err != nil {
 				return nil, fmt.Errorf("error initializing runner: %s", err)

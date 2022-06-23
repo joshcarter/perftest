@@ -8,29 +8,20 @@ import (
 	"github.com/spectralogic/go-core/log"
 )
 
-type SyncOpt int
-
-const (
-	NoSync      SyncOpt = 1
-	SyncOnClose SyncOpt = 2
-	SyncBatched SyncOpt = 3
-)
-
 type Runner struct {
 	log.Logger
 	blockstore  BlockStore
 	blockvendor *BlockVendor
 	reporter    *Reporter
-	syncBatcher *SyncBatcher
+	syncer      Syncer
 	iosize      int64
-	sync        SyncOpt
 	stop        chan chan bool
 	errchan     chan error
 }
 
 var numRunners = 0
 
-func NewRunner(bs BlockStore, iosize int64, sync SyncOpt) (*Runner, error) {
+func NewRunner(bs BlockStore, iosize int64) (*Runner, error) {
 	numRunners += 1
 
 	r := &Runner{
@@ -38,9 +29,8 @@ func NewRunner(bs BlockStore, iosize int64, sync SyncOpt) (*Runner, error) {
 		blockstore:  bs,
 		blockvendor: global.BlockVendor,
 		reporter:    global.Reporter,
-		syncBatcher: global.SyncBatcher,
+		syncer:      global.Syncer,
 		iosize:      iosize,
-		sync:        sync,
 		stop:        make(chan chan bool, 1),
 		errchan:     global.RunnerError,
 	}
@@ -94,11 +84,7 @@ func (r *Runner) WriteBlock() (e error) {
 
 	defer func() {
 		if e == nil {
-			if r.sync == SyncOnClose {
-				e = wr.Sync()
-			} else if r.sync == SyncBatched {
-				e = r.syncBatcher.Sync(wr)
-			}
+			e = r.syncer.Sync(wr)
 		}
 
 		if e == nil {

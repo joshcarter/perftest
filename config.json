@@ -2,7 +2,7 @@
     "file": {
         "paths": ["/tmp/file_writer"],
         "runners_per_path": 10,
-        "sync": "batch"
+        "sync": "close"
     },
     "sync_batcher": {
         "interval": "3s",
