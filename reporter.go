@@ -36,7 +36,7 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 	r = &Reporter{
 		Logger:  log.GetLogger("reporter"),
 		config:  config,
-		samples: make(chan *Sample, 100),
+		samples: make(chan *Sample, 1000),
 		stop:    make(chan chan bool, 1),
 		samplePool: sync.Pool{
 			New: func() interface{} {
