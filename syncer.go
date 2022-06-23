@@ -67,7 +67,7 @@ func (s *SyncBatcher) Stop() {
 func (s *SyncBatcher) Run() {
 	s.Infof("running")
 
-	t := time.NewTicker(s.interval)
+	t := time.NewTimer(s.interval)
 
 	for {
 		select {
@@ -81,24 +81,34 @@ func (s *SyncBatcher) Run() {
 			s.pending <- req
 			// s.Infof("enqueuing sync request (incoming %d, pending %d)", len(s.incoming), len(s.pending))
 			if len(s.pending) >= s.maxPending {
+				// s.Infof("flushing early")
 				s.SyncPending()
+
+				// Reset timer
+				if !t.Stop() {
+					<-t.C
+				}
+				t.Reset(s.interval)
 			}
 
 		case <-t.C:
 			// s.Infof("tick")
 			s.SyncPending()
+			t.Reset(s.interval)
 		}
 	}
 }
 
+// SyncPending will sync what's in the pending queue.
 func (s *SyncBatcher) SyncPending() {
-	if len(s.pending) == 0 {
+	pending := len(s.pending)
+	if pending == 0 {
 		return
 	}
 
-	s.Debugf("sync'ing %d pending writers", len(s.pending))
+	// s.Infof("sync'ing %d pending writers", pending)
 
-	for i := 0; i < len(s.pending); i++ {
+	for i := 0; i < pending; i++ {
 		// s.Infof(" - sync %d", i)
 		req := <-s.pending
 		e := req.bw.Sync()
