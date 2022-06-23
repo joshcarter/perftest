@@ -7,8 +7,8 @@ import (
 )
 
 type Syncer interface {
-	// Issue sync on BlockWriter based on policy.
-	Sync(bw BlockWriter) error
+	// Issue sync on ObjectWriter based on policy.
+	Sync(bw ObjectWriter) error
 
 	// Log a report on sync syncTime and reset them.
 	Report()
@@ -16,7 +16,7 @@ type Syncer interface {
 
 type SyncNone struct{}
 
-func (s *SyncNone) Sync(_ BlockWriter) error {
+func (s *SyncNone) Sync(_ ObjectWriter) error {
 	return nil
 }
 
@@ -35,7 +35,7 @@ func NewSyncInline() *SyncInline {
 	}
 }
 
-func (s *SyncInline) Sync(bw BlockWriter) (e error) {
+func (s *SyncInline) Sync(bw ObjectWriter) (e error) {
 	start := time.Now()
 	e = bw.Sync()
 	elapsed := time.Now().Sub(start)
@@ -52,7 +52,7 @@ func (s *SyncInline) Report() {
 }
 
 type SyncRequest struct {
-	bw BlockWriter
+	bw ObjectWriter
 	e  chan error
 }
 
@@ -84,7 +84,7 @@ func NewSyncBatcher(interval time.Duration, maxPending int) *SyncBatcher {
 	return s
 }
 
-func (s *SyncBatcher) Sync(bw BlockWriter) (e error) {
+func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
 	start := time.Now()
 
 	// Create sync request and wait for it to be processed.

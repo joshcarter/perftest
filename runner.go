@@ -8,40 +8,40 @@ import (
 	"github.com/spectralogic/go-core/log"
 )
 
-type SyncOpt int
+type SyncWhen int
 
 const (
-	SyncOnClose SyncOpt = 1
-	SyncOnWrite SyncOpt = 2
+	SyncOnClose SyncWhen = 1
+	SyncOnWrite SyncWhen = 2
 )
 
 type Runner struct {
 	log.Logger
-	blockstore  BlockStore
-	blockvendor *BlockVendor
-	reporter    *Reporter
-	syncer      Syncer
-	syncOpt     SyncOpt
-	iosize      int64
-	stop        chan chan bool
-	errchan     chan error
+	objectStore  ObjectStore
+	objectVendor *ObjectVendor
+	reporter     *Reporter
+	syncer       Syncer
+	syncWhen     SyncWhen
+	iosize       int64
+	stop         chan chan bool
+	errchan      chan error
 }
 
 var numRunners = 0
 
-func NewRunner(bs BlockStore, iosize int64, syncOpt SyncOpt) (*Runner, error) {
+func NewRunner(os ObjectStore, iosize int64, syncWhen SyncWhen) (*Runner, error) {
 	numRunners += 1
 
 	r := &Runner{
-		Logger:      log.GetLogger(fmt.Sprintf("runner.%d", numRunners)),
-		blockstore:  bs,
-		blockvendor: global.BlockVendor,
-		reporter:    global.Reporter,
-		syncer:      global.Syncer,
-		syncOpt:     syncOpt,
-		iosize:      iosize,
-		stop:        make(chan chan bool, 1),
-		errchan:     global.RunnerError,
+		Logger:       log.GetLogger(fmt.Sprintf("runner.%d", numRunners)),
+		objectStore:  os,
+		objectVendor: global.ObjectVendor,
+		reporter:     global.Reporter,
+		syncer:       global.Syncer,
+		syncWhen:     syncWhen,
+		iosize:       iosize,
+		stop:         make(chan chan bool, 1),
+		errchan:      global.RunnerError,
 	}
 
 	r.Infof("creating runner")
@@ -84,7 +84,7 @@ func (r *Runner) Run() {
 			return
 
 		default:
-			err := r.WriteBlock()
+			err := r.WriteObject()
 
 			if err != nil {
 				select {
@@ -98,21 +98,17 @@ func (r *Runner) Run() {
 	}
 }
 
-func (r *Runner) WriteBlock() (e error) {
-	blk := r.blockvendor.GetBlock()
-	defer r.blockvendor.ReturnBlock(blk)
+func (r *Runner) WriteObject() (e error) {
+	blk := r.objectVendor.GetObject()
+	defer r.objectVendor.ReturnObject(blk)
 
-	wr, e := r.blockstore.GetWriter(fmt.Sprintf("%s.%s", blk.Id.String(), blk.Extension))
+	wr, e := r.objectStore.GetWriter(fmt.Sprintf("%s.%s", blk.Id.String(), blk.Extension))
 
 	if e != nil {
 		return r.LogError(fmt.Errorf("cannot get block writer: %s", e))
 	}
 
 	defer func() {
-		if e == nil && r.syncOpt == SyncOnClose {
-			e = r.syncer.Sync(wr)
-		}
-
 		if e == nil {
 			e = wr.Close()
 		} else {
@@ -126,6 +122,7 @@ func (r *Runner) WriteBlock() (e error) {
 	// r.Infof("starting block '%s': %d bytes", blk.Id, remaining)
 
 	for remaining > 0 {
+		var bw int64
 		iosize := r.iosize
 
 		if iosize > int64(remaining) {
@@ -135,27 +132,35 @@ func (r *Runner) WriteBlock() (e error) {
 		// r.Infof("writing '%s': %d bytes, %d remaining", blk.Id, iosize, remaining)
 
 		sample := r.reporter.GetSample()
-		bw, err := io.CopyN(wr, rd, iosize)
+		bw, e = io.CopyN(wr, rd, iosize)
 		r.reporter.CaptureSample(sample, bw)
 
 		remaining -= int(bw)
 
-		if err == io.EOF || remaining == 0 {
+		if e == io.EOF || remaining == 0 {
+			e = nil
 			break
-		} else if err != nil {
-			return r.LogError(err)
+		} else if e != nil {
+			r.Errorf("write: %s", e)
+			return
 		} else if bw < iosize {
-			r.Infof("short write: expected %d, got %d", iosize, bw)
+			e = r.LogError(fmt.Errorf("short write: expected %d, got %d", iosize, bw))
+			return
 		}
 
-		if r.syncOpt == SyncOnWrite {
-			if err = r.syncer.Sync(wr); err != nil {
-				return r.LogError(err)
+		if r.syncWhen == SyncOnWrite {
+			if e = r.syncer.Sync(wr); e != nil {
+				r.Errorf("sync: %s", e)
+				return
 			}
 		}
 	}
 
 	// r.Infof("wrote block '%s'", blk.Id)
 
-	return nil
+	if r.syncWhen == SyncOnClose {
+		e = r.syncer.Sync(wr)
+	}
+
+	return
 }

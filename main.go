@@ -16,7 +16,7 @@ import (
 type runnerInitFn func([]*Runner) ([]*Runner, error)
 
 type Globals struct {
-	BlockVendor   *BlockVendor
+	ObjectVendor  *ObjectVendor
 	Reporter      *Reporter
 	RunnerInitFns []runnerInitFn
 	RunnerError   chan error
@@ -39,7 +39,7 @@ func main() {
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.SetDefault("iosize", "1MB")
-	viper.SetDefault("bssplit", "4MB/100/dat")
+	viper.SetDefault("size", "4MB/100/dat")
 	viper.SetDefault("reporter.interval", "1s")
 	viper.SetDefault("compressibility", "50")
 
@@ -55,19 +55,19 @@ func main() {
 		os.Exit(-1)
 	}
 
-	bssplit := viper.GetString("bssplit")
+	sizespec := viper.GetString("size")
 
-	if len(bssplit) == 0 {
-		logger.Errorf("no block size specified; create 'bssplit' in config.json")
+	if len(sizespec) == 0 {
+		logger.Errorf("no file size specified; create 'size' in config.json")
 		os.Exit(-1)
 	}
 
 	compressibility := viper.GetInt("compressibility")
 
-	global.BlockVendor, err = NewBlockVendor(bssplit, compressibility)
+	global.ObjectVendor, err = NewObjectVendor(sizespec, compressibility)
 
 	if err != nil {
-		logger.Errorf("cannot create block vendor: %s", err)
+		logger.Errorf("cannot create object vendor: %s", err)
 		os.Exit(-1)
 	}
 
@@ -142,10 +142,12 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 
 	iosize := viper.GetSizeInBytes("iosize")
 
+	willSync := false
 	switch viper.GetString("file.sync") {
 	case "close", "inline":
 		logger.Infof("syncing inline")
 		global.Syncer = NewSyncInline()
+		willSync = true
 	case "batch", "batched", "batcher":
 		logger.Infof("syncing in batches")
 
@@ -162,25 +164,31 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 		}
 
 		global.Syncer = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending)
+		willSync = true
 	default:
 		global.Syncer = &SyncNone{}
 	}
 
-	var syncOpt = SyncOnClose
-	switch viper.GetString("file.sync_on") {
-	case "write", "io":
-		syncOpt = SyncOnWrite
+	var syncWhen = SyncOnClose
+	if willSync {
+		switch viper.GetString("file.sync_on") {
+		case "write", "io":
+			syncWhen = SyncOnWrite
+			logger.Infof("sync after every write")
+		default:
+			logger.Infof("sync on file close")
+		}
 	}
 
 	for _, path := range paths {
 		for i := 0; i < runnersPerPath; i++ {
-			bs, err := NewFileBlockStore(path)
+			bs, err := NewFileObjectStore(path)
 
 			if err != nil {
 				return nil, fmt.Errorf("cannot init store: %s", err)
 			}
 
-			r, err := NewRunner(bs, int64(iosize), syncOpt)
+			r, err := NewRunner(bs, int64(iosize), syncWhen)
 
 			if err != nil {
 				return nil, fmt.Errorf("error initializing runner: %s", err)

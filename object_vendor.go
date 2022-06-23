@@ -12,25 +12,25 @@ import (
 	"github.com/spectralogic/go-core/ulid"
 )
 
-type Block struct {
+type Object struct {
 	Id        *ulid.ULID
 	Extension string // file extension
 	dataBuf   []byte // full-size buffer
 	Data      []byte // slice of dataBuf to use (may be smaller)
 }
 
-type BlockConfig struct {
+type ObjectVendorConfig struct {
 	Compressibility int
 	Sizes           []int
 	MaxSize         int
 	Extensions      map[int]string // map size -> file extension for size
 }
 
-type BlockVendor struct {
+type ObjectVendor struct {
 	log.Logger
-	config    *BlockConfig
-	seq       *sequence.ByteSequence
-	blockPool sync.Pool
+	config     *ObjectVendorConfig
+	seq        *sequence.ByteSequence
+	objectPool sync.Pool
 }
 
 // Size spec follows fio 'bsplit' format:
@@ -40,8 +40,8 @@ type BlockVendor struct {
 //
 // Compressibility should be 0 for incompressible, 100 for totally
 // compressible data, or any percentage between.
-func NewBlockVendor(bssplit string, compressibility int) (*BlockVendor, error) {
-	config, err := parseBlockSizeSplit(bssplit)
+func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error) {
+	config, err := parseSizeSpec(sizespec)
 
 	if err != nil {
 		return nil, err
@@ -49,13 +49,13 @@ func NewBlockVendor(bssplit string, compressibility int) (*BlockVendor, error) {
 
 	config.Compressibility = compressibility
 
-	b := &BlockVendor{
-		Logger: log.GetLogger("blockvendor"),
+	b := &ObjectVendor{
+		Logger: log.GetLogger("objectVendor"),
 		config: config,
 		seq:    sequence.NewByteSequence(int64(0)),
-		blockPool: sync.Pool{
+		objectPool: sync.Pool{
 			New: func() interface{} {
-				return &Block{
+				return &Object{
 					Id:      nil, // ID gets assigned later
 					dataBuf: make([]byte, config.MaxSize),
 				}
@@ -63,14 +63,14 @@ func NewBlockVendor(bssplit string, compressibility int) (*BlockVendor, error) {
 		},
 	}
 
-	b.Infof("block size spec: %s", bssplit)
+	b.Infof("object size spec: %s", sizespec)
 	b.Infof("compressibility: %d", compressibility)
 
 	return b, nil
 }
 
-func (b *BlockVendor) GetBlock() *Block {
-	blk := b.blockPool.Get().(*Block)
+func (b *ObjectVendor) GetObject() *Object {
+	blk := b.objectPool.Get().(*Object)
 
 	blk.Id = ulid.New()
 
@@ -83,33 +83,43 @@ func (b *BlockVendor) GetBlock() *Block {
 	return blk
 }
 
-func (b *BlockVendor) ReturnBlock(blk *Block) {
-	b.blockPool.Put(blk)
+func (b *ObjectVendor) ReturnObject(blk *Object) {
+	b.objectPool.Put(blk)
 }
 
-func parseBlockSizeSplit(bssplit string) (*BlockConfig, error) {
-	config := &BlockConfig{
+func parseSizeSpec(sizespec string) (*ObjectVendorConfig, error) {
+	config := &ObjectVendorConfig{
 		Sizes:      make([]int, 100),
 		Extensions: make(map[int]string),
 		MaxSize:    0,
 	}
 
 	totalPercent := 0
-	splits := strings.Split(bssplit, ":")
+	splits := strings.Split(sizespec, ":")
 
 	if len(splits) == 0 {
 		return nil, fmt.Errorf("size spec needs at least one size; try 'blocksize/100/dat'")
 	}
 
 	for _, s := range splits {
+		sizeStr := ""
+		percentStr := "100"
+		extension := "dat"
+
 		strs := strings.Split(s, "/")
-		if len(strs) != 3 {
+		switch {
+		case len(strs) == 1:
+			sizeStr = strs[0]
+		case len(strs) == 2:
+			sizeStr = strs[0]
+			percentStr = strs[1]
+		case len(strs) == 3:
+			sizeStr = strs[0]
+			percentStr = strs[1]
+			extension = strs[2]
+		default:
 			return nil, fmt.Errorf("malformed split '%s'; should be blocksize/percent/extension", s)
 		}
-
-		sizeStr := strs[0]
-		percentStr := strs[1]
-		extension := strs[2]
 
 		size, err := parseSizeInBytes(sizeStr)
 

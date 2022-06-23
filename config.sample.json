@@ -9,7 +9,7 @@
         "interval": "3s",
         "max_pending": 3
     },
-    "bssplit": "4MB/25/mov:8MB/25/mp4:8KB/50/xml",
+    "size": "4MB/25/mov:8MB/25/mp4:8KB/50/xml",
     "iosize": "1MB",
     "compressibility": "50",
     "reporter": {
