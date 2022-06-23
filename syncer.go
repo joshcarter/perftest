@@ -10,7 +10,7 @@ type Syncer interface {
 	// Issue sync on BlockWriter based on policy.
 	Sync(bw BlockWriter) error
 
-	// Log a report on sync timings and reset them.
+	// Log a report on sync syncTime and reset them.
 	Report()
 }
 
@@ -45,7 +45,7 @@ func (s *SyncInline) Sync(bw BlockWriter) (e error) {
 }
 
 func (s *SyncInline) Report() {
-	fmt.Println("inline sync timings")
+	fmt.Println("inline sync syncTime")
 	fmt.Println(s.timings.Headers())
 	fmt.Println(s.timings.String())
 	s.timings.Reset()
@@ -62,7 +62,8 @@ type SyncBatcher struct {
 	pending    chan *SyncRequest
 	interval   time.Duration
 	maxPending int
-	timings    *Histogram
+	syncTime   *Histogram // time waiting for sync only to complete
+	totalTime  *Histogram // total time waiting (batch delay + sync)
 	stop       chan chan bool
 }
 
@@ -73,7 +74,8 @@ func NewSyncBatcher(interval time.Duration, maxPending int) *SyncBatcher {
 		pending:    make(chan *SyncRequest, 100),
 		interval:   interval,
 		maxPending: maxPending,
-		timings:    NewHistogram(),
+		syncTime:   NewHistogram(),
+		totalTime:  NewHistogram(),
 		stop:       make(chan chan bool),
 	}
 
@@ -83,9 +85,14 @@ func NewSyncBatcher(interval time.Duration, maxPending int) *SyncBatcher {
 }
 
 func (s *SyncBatcher) Sync(bw BlockWriter) (e error) {
+	start := time.Now()
+
+	// Create sync request and wait for it to be processed.
 	req := &SyncRequest{bw, make(chan error)}
 	s.incoming <- req
 	e = <-req.e
+
+	s.totalTime.Add(time.Now().Sub(start))
 	return e
 }
 
@@ -145,16 +152,16 @@ func (s *SyncBatcher) SyncPending() {
 		req := <-s.pending
 		start := time.Now()
 		e := req.bw.Sync()
-		elapsed := time.Now().Sub(start)
+		s.syncTime.Add(time.Now().Sub(start))
 		req.e <- e
-
-		s.timings.Add(elapsed)
 	}
 }
 
 func (s *SyncBatcher) Report() {
-	fmt.Println("batch sync timings")
-	fmt.Println(s.timings.Headers())
-	fmt.Println(s.timings.String())
-	s.timings.Reset()
+	fmt.Println("batch sync times (sync only, then wait+sync)")
+	fmt.Println(s.syncTime.Headers())
+	fmt.Println(s.syncTime.String())
+	fmt.Println(s.totalTime.String())
+	s.syncTime.Reset()
+	s.totalTime.Reset()
 }
