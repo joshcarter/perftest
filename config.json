@@ -1,7 +1,7 @@
 {
     "file": {
         "paths": ["/tmp/perftest"],
-        "runners_per_path": 25,
+        "runners_per_path": 20,
         "sync": "batch",
         "sync_on": "close"
     },
@@ -9,10 +9,10 @@
         "interval": "3s",
         "max_pending": 10
     },
-    "bssplit": "10MB/100/pak",
-    "iosize": "1MB",
+    "bssplit": "5MB/100/dat",
+    "iosize": "256KB",
     "reporter": {
-        "interval": "5s",
+        "interval": "1s",
         "logbandwidth": false,
         "loglatency": false
     }

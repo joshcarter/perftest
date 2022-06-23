@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/spectralogic/go-core/log"
 	"time"
 )
@@ -44,9 +45,9 @@ func (s *SyncInline) Sync(bw BlockWriter) (e error) {
 }
 
 func (s *SyncInline) Report() {
-	s.Infof("inline sync timings")
-	s.Infof(s.timings.Headers())
-	s.Infof(s.timings.String())
+	fmt.Println("inline sync timings")
+	fmt.Println(s.timings.Headers())
+	fmt.Println(s.timings.String())
 	s.timings.Reset()
 }
 
@@ -152,8 +153,8 @@ func (s *SyncBatcher) SyncPending() {
 }
 
 func (s *SyncBatcher) Report() {
-	s.Infof("batch sync timings")
-	s.Infof(s.timings.Headers())
-	s.Infof(s.timings.String())
+	fmt.Println("batch sync timings")
+	fmt.Println(s.timings.Headers())
+	fmt.Println(s.timings.String())
 	s.timings.Reset()
 }

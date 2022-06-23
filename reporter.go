@@ -116,7 +116,6 @@ func (r *Reporter) Run() {
 		case stopChan := <-r.stop:
 			t.Stop()
 			t2.Stop()
-			global.Syncer.Report()
 			stopChan <- true
 			r.Infof("stopped")
 			return
