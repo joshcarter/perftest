@@ -144,8 +144,8 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 
 	switch viper.GetString("file.sync") {
 	case "close", "inline":
-		logger.Infof("syncing on file close")
-		global.Syncer = &SyncInline{}
+		logger.Infof("syncing inline")
+		global.Syncer = NewSyncInline()
 	case "batch", "batched", "batcher":
 		logger.Infof("syncing in batches")
 

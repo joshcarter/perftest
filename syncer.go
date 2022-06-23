@@ -1,14 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"github.com/spectralogic/go-core/log"
-	"github.com/spectralogic/go-core/stat"
 	"time"
 )
 
 type Syncer interface {
+	// Issue sync on BlockWriter based on policy.
 	Sync(bw BlockWriter) error
+
+	// Log a report on sync timings and reset them.
+	Report()
 }
 
 type SyncNone struct{}
@@ -17,10 +19,35 @@ func (s *SyncNone) Sync(_ BlockWriter) error {
 	return nil
 }
 
-type SyncInline struct{}
+func (s *SyncNone) Report() {
+}
 
-func (s *SyncInline) Sync(bw BlockWriter) error {
-	return bw.Sync()
+type SyncInline struct {
+	log.Logger
+	timings *Histogram
+}
+
+func NewSyncInline() *SyncInline {
+	return &SyncInline{
+		log.GetLogger("sync-inline"),
+		NewHistogram(),
+	}
+}
+
+func (s *SyncInline) Sync(bw BlockWriter) (e error) {
+	start := time.Now()
+	e = bw.Sync()
+	elapsed := time.Now().Sub(start)
+	s.timings.Add(elapsed)
+
+	return e
+}
+
+func (s *SyncInline) Report() {
+	s.Infof("inline sync timings")
+	s.Infof(s.timings.Headers())
+	s.Infof(s.timings.String())
+	s.timings.Reset()
 }
 
 type SyncRequest struct {
@@ -34,6 +61,7 @@ type SyncBatcher struct {
 	pending    chan *SyncRequest
 	interval   time.Duration
 	maxPending int
+	timings    *Histogram
 	stop       chan chan bool
 }
 
@@ -44,6 +72,7 @@ func NewSyncBatcher(interval time.Duration, maxPending int) *SyncBatcher {
 		pending:    make(chan *SyncRequest, 100),
 		interval:   interval,
 		maxPending: maxPending,
+		timings:    NewHistogram(),
 		stop:       make(chan chan bool),
 	}
 
@@ -110,21 +139,21 @@ func (s *SyncBatcher) SyncPending() {
 
 	// s.Infof("sync'ing %d pending writers", pending)
 
-	hist := stat.NewHistogram()
-
 	for i := 0; i < pending; i++ {
 		// s.Infof(" - sync %d", i)
 		req := <-s.pending
 		start := time.Now()
 		e := req.bw.Sync()
-		end := time.Now()
+		elapsed := time.Now().Sub(start)
 		req.e <- e
 
-		elapsed := end.Sub(start)
-		hist.Add(elapsed)
+		s.timings.Add(elapsed)
 	}
+}
 
-	fmt.Println(hist.Headers())
-	fmt.Println(hist.String())
-	// log.Infof("batch sync timings:\n%s\n%s\n", hist.Headers(), hist.String())
+func (s *SyncBatcher) Report() {
+	s.Infof("batch sync timings")
+	s.Infof(s.timings.Headers())
+	s.Infof(s.timings.String())
+	s.timings.Reset()
 }

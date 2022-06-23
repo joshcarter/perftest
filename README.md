@@ -37,11 +37,17 @@ following will create 10 parallel streams writing to `/tmp/perftest`:
         }
     }
 
-To control sync behavior, the `file` section may contain a `sync` entry which may be set to:
+Two settings in the `file` section control sync behavior. First, `sync_on` will control where the sync takes place:
 
-* `none`: no fsync (default)
-* `inline`: fsync called when file is closed
-* `batch`: fsyncs will be batched together
+* `write`: sync will happen after every write (see `iosize`).
+* `close`: sync will happen after the file is fully written and about to be closed (default, see `bssplit` for how file sizes are determined).
+
+Second, `sync` controls the policy for sync behavior, and may bo one of:
+
+* `none`: no fsync (default).
+* `inline`: fsync called in the same goroutine as the writes.
+* `batch`: fsyncs will be batched together and issued in a separate goroutine based on the batcher's policy, as
+  configured below.
 
 If `file.sync` is set to `batch`, an additional section is required:
 

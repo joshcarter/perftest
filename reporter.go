@@ -109,11 +109,14 @@ func (r *Reporter) Run() {
 	lastReportTime := startTime
 
 	t := time.NewTicker(r.config.Interval)
+	t2 := time.NewTicker(time.Second * 10)
 
 	for {
 		select {
 		case stopChan := <-r.stop:
 			t.Stop()
+			t2.Stop()
+			global.Syncer.Report()
 			stopChan <- true
 			r.Infof("stopped")
 			return
@@ -144,6 +147,9 @@ func (r *Reporter) Run() {
 
 			lastReportTime = tick
 			intervalBytes = int64(0)
+
+		case <-t2.C:
+			global.Syncer.Report()
 		}
 	}
 }
