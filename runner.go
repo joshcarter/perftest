@@ -51,7 +51,7 @@ func NewRunner(os ObjectStore, iosize int64, syncWhen SyncWhen) (*Runner, error)
 
 func (r *Runner) Stop() {
 	r.Infof("stopping")
-	stopChan := make(chan bool)
+	stopChan := make(chan bool, 1)
 	r.stop <- stopChan // request stop
 	<-stopChan         // stop acknowledged
 }
@@ -61,7 +61,7 @@ func StopRunners(runners []*Runner) {
 
 	// Request for all to stop
 	for i, r := range runners {
-		stopChan := make(chan bool)
+		stopChan := make(chan bool, 1)
 		r.Infof("stopping")
 		r.stop <- stopChan
 		stopChans[i] = stopChan

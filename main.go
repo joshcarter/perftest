@@ -163,7 +163,9 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 			os.Exit(-1)
 		}
 
-		global.Syncer = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending)
+		syncBatcherParallel := viper.GetBool("sync_batcher.parallel")
+
+		global.Syncer = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending, syncBatcherParallel)
 		willSync = true
 	default:
 		global.Syncer = &SyncNone{}

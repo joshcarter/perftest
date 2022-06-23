@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/spectralogic/go-core/log"
+	"sync"
 	"time"
 )
 
@@ -45,7 +46,7 @@ func (s *SyncInline) Sync(bw ObjectWriter) (e error) {
 }
 
 func (s *SyncInline) Report() {
-	fmt.Println("inline sync syncTime")
+	fmt.Println("inline sync times")
 	fmt.Println(s.timings.Headers())
 	fmt.Println(s.timings.String())
 	s.timings.Reset()
@@ -62,18 +63,20 @@ type SyncBatcher struct {
 	pending    chan *SyncRequest
 	interval   time.Duration
 	maxPending int
+	parallel   bool       // do syncs in many goroutines, or just one
 	syncTime   *Histogram // time waiting for sync only to complete
 	totalTime  *Histogram // total time waiting (batch delay + sync)
 	stop       chan chan bool
 }
 
-func NewSyncBatcher(interval time.Duration, maxPending int) *SyncBatcher {
+func NewSyncBatcher(interval time.Duration, maxPending int, parallel bool) *SyncBatcher {
 	s := &SyncBatcher{
 		Logger:     log.GetLogger("sync-batcher"),
 		incoming:   make(chan *SyncRequest, 100),
 		pending:    make(chan *SyncRequest, 100),
 		interval:   interval,
 		maxPending: maxPending,
+		parallel:   parallel,
 		syncTime:   NewHistogram(),
 		totalTime:  NewHistogram(),
 		stop:       make(chan chan bool),
@@ -88,7 +91,7 @@ func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
 	start := time.Now()
 
 	// Create sync request and wait for it to be processed.
-	req := &SyncRequest{bw, make(chan error)}
+	req := &SyncRequest{bw, make(chan error, 1)}
 	s.incoming <- req
 	e = <-req.e
 
@@ -147,14 +150,42 @@ func (s *SyncBatcher) SyncPending() {
 
 	// s.Infof("sync'ing %d pending writers", pending)
 
+	if s.parallel {
+		s.syncPendingParallel(pending)
+	} else {
+		s.syncPendingSequential(pending)
+	}
+}
+
+// SyncPending will sync what's in the pending queue.
+func (s *SyncBatcher) syncPendingSequential(pending int) {
 	for i := 0; i < pending; i++ {
-		// s.Infof(" - sync %d", i)
 		req := <-s.pending
+
 		start := time.Now()
 		e := req.bw.Sync()
 		s.syncTime.Add(time.Now().Sub(start))
+
 		req.e <- e
 	}
+}
+
+// SyncPending will sync what's in the pending queue.
+func (s *SyncBatcher) syncPendingParallel(pending int) {
+	var wg sync.WaitGroup
+	for i := 0; i < pending; i++ {
+		req := <-s.pending
+
+		wg.Add(1)
+		go func(req *SyncRequest, syncTime *Histogram) {
+			start := time.Now()
+			e := req.bw.Sync()
+			s.syncTime.Add(time.Now().Sub(start))
+			req.e <- e
+			wg.Done()
+		}(req, s.syncTime)
+	}
+	wg.Wait()
 }
 
 func (s *SyncBatcher) Report() {

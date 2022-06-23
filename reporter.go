@@ -73,7 +73,7 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 
 func (r *Reporter) Stop() {
 	r.Infof("stopping")
-	stopChan := make(chan bool)
+	stopChan := make(chan bool, 1)
 	r.stop <- stopChan // request stop
 	<-stopChan         // stop acknowledged
 
