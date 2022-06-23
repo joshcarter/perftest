@@ -1,4 +1,4 @@
-module main
+module perftest
 
 go 1.17
 

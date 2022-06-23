@@ -1,6 +1,6 @@
 {
     "file": {
-        "paths": ["/tmp/file_writer"],
+        "paths": ["/tmp/perftest"],
         "runners_per_path": 10,
         "sync": "close"
     },
