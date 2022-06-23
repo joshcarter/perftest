@@ -47,6 +47,23 @@ func (r *Runner) Stop() {
 	<-stopChan         // stop acknowledged
 }
 
+func StopRunners(runners []*Runner) {
+	stopChans := make([]chan bool, len(runners))
+
+	// Request for all to stop
+	for i, r := range runners {
+		stopChan := make(chan bool)
+		r.Infof("stopping")
+		r.stop <- stopChan
+		stopChans[i] = stopChan
+	}
+
+	// Wait for all to stop
+	for _, stopChan := range stopChans {
+		<- stopChan
+	}
+}
+
 func (r *Runner) Run() {
 	r.Infof("running")
 

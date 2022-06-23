@@ -118,10 +118,7 @@ func main() {
 
 stop:
 
-	for _, r := range runners {
-		r.Stop()
-	}
-
+	StopRunners(runners)
 	global.Reporter.Stop()
 
 	os.Exit(0)
