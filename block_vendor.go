@@ -14,8 +14,9 @@ import (
 
 type Block struct {
 	Id        *ulid.ULID
-	Extension string
-	Data      []byte
+	Extension string // file extension
+	dataBuf   []byte // full-size buffer
+	Data      []byte // slice of dataBuf to use (may be smaller)
 }
 
 type BlockConfig struct {
@@ -55,8 +56,8 @@ func NewBlockVendor(bssplit string, compressibility int) (*BlockVendor, error) {
 		blockPool: sync.Pool{
 			New: func() interface{} {
 				return &Block{
-					Id:   nil, // ID gets assigned later
-					Data: make([]byte, config.MaxSize),
+					Id:      nil, // ID gets assigned later
+					dataBuf: make([]byte, config.MaxSize),
 				}
 			},
 		},
@@ -75,7 +76,7 @@ func (b *BlockVendor) GetBlock() *Block {
 
 	// slice block down to size
 	size := b.config.Sizes[rand.Int31n(100)]
-	blk.Data = blk.Data[:size]
+	blk.Data = blk.dataBuf[:size]
 	blk.Extension = b.config.Extensions[size]
 
 	b.seq.PatternFill(blk.Data, b.config.Compressibility)
