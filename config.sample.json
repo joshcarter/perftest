@@ -2,7 +2,8 @@
     "file": {
         "paths": ["/tmp/runner1", "/tmp/runner2"],
         "runners_per_path": 1,
-        "sync": "batch"
+        "sync": "batch",
+        "sync_on": "close"
     },
     "sync_batcher": {
         "interval": "3s",

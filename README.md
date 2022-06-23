@@ -2,6 +2,28 @@
 
 I/O performance test (currently just file writes) in Go. Run `./perftest` from a console and press Control-C to stop.
 
+## Structure ##
+
+    +---------------+
+    | Outer loop    |--------------------------------------------+
+    +---------------+                                    creates |
+              | creates                                          |
+       +---------------+                                  +---------------+
+       | Block Vendor  |                                  | Reporter      |
+       |   -> Blocks   |                                  +---------------+
+       +---------------+                                         ^
+              | chan rx         +---------------+        chan tx |
+              +-------------->  | Runner 1      |  --------------+
+              |                 |   -> Files    |                |
+              |                 +---------------+                |
+              |                                                  |
+              |                 +---------------+                |
+              +-------------->  | Runner 2      |  --------------+
+                                +---------------+
+                                
+                               (...more runners...)
+
+
 ## Config Options
 
 See `config.json` and `config.sample.json`. The entry `file.paths` should contain at least one path where files will be

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"github.com/spectralogic/go-core/log"
+	"github.com/spectralogic/go-core/stat"
 	"time"
 )
 
@@ -108,10 +110,21 @@ func (s *SyncBatcher) SyncPending() {
 
 	// s.Infof("sync'ing %d pending writers", pending)
 
+	hist := stat.NewHistogram()
+
 	for i := 0; i < pending; i++ {
 		// s.Infof(" - sync %d", i)
 		req := <-s.pending
+		start := time.Now()
 		e := req.bw.Sync()
+		end := time.Now()
 		req.e <- e
+
+		elapsed := end.Sub(start)
+		hist.Add(elapsed)
 	}
+
+	fmt.Println(hist.Headers())
+	fmt.Println(hist.String())
+	// log.Infof("batch sync timings:\n%s\n%s\n", hist.Headers(), hist.String())
 }

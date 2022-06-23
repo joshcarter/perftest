@@ -166,6 +166,12 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 		global.Syncer = &SyncNone{}
 	}
 
+	var syncOpt = SyncOnClose
+	switch viper.GetString("file.sync_on") {
+	case "write", "io":
+		syncOpt = SyncOnWrite
+	}
+
 	for _, path := range paths {
 		for i := 0; i < runnersPerPath; i++ {
 			bs, err := NewFileBlockStore(path)
@@ -174,7 +180,7 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 				return nil, fmt.Errorf("cannot init store: %s", err)
 			}
 
-			r, err := NewRunner(bs, int64(iosize))
+			r, err := NewRunner(bs, int64(iosize), syncOpt)
 
 			if err != nil {
 				return nil, fmt.Errorf("error initializing runner: %s", err)
