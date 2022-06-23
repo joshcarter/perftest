@@ -17,20 +17,21 @@ type ObjectStore interface {
 }
 
 type FileObjectStore struct {
-	root string
+	root      string
+	openFlags int
 }
 
-func NewFileObjectStore(root string) (bs ObjectStore, e error) {
+func NewFileObjectStore(root string, openFlags int) (bs ObjectStore, e error) {
 	if e = os.MkdirAll(root, 0750); e != nil {
 		e = fmt.Errorf("cannot init file store: %s", e)
 		return
 	}
 
-	bs = &FileObjectStore{root}
+	bs = &FileObjectStore{root, openFlags}
 	return
 }
 
 func (f *FileObjectStore) GetWriter(name string) (bw ObjectWriter, e error) {
-	bw, e = os.Create(filepath.Join(f.root, name))
+	bw, e = os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
 	return
 }

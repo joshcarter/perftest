@@ -2,8 +2,9 @@
     "file": {
         "paths": ["/tmp/perftest"],
         "runners_per_path": 10,
-        "sync": "batch",
-        "sync_on": "close"
+        "sync": "inline",
+        "sync_on": "close",
+        "open_flags": ["O_SYNC"]
     },
     "sync_batcher": {
         "interval": "2s",

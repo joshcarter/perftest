@@ -180,9 +180,11 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 		}
 	}
 
+	openFlags := parseOpenFlags(viper.GetStringSlice("file.open_flags"))
+
 	for _, path := range paths {
 		for i := 0; i < runnersPerPath; i++ {
-			bs, err := NewFileObjectStore(path)
+			bs, err := NewFileObjectStore(path, openFlags)
 
 			if err != nil {
 				return nil, fmt.Errorf("cannot init store: %s", err)
