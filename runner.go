@@ -8,19 +8,29 @@ import (
 	"github.com/spectralogic/go-core/log"
 )
 
+type SyncOpt int
+
+const (
+	NoSync      SyncOpt = 1
+	SyncOnClose SyncOpt = 2
+	SyncBatched SyncOpt = 3
+)
+
 type Runner struct {
 	log.Logger
 	blockstore  BlockStore
 	blockvendor *BlockVendor
 	reporter    *Reporter
+	syncBatcher *SyncBatcher
 	iosize      int64
+	sync        SyncOpt
 	stop        chan chan bool
 	errchan     chan error
 }
 
 var numRunners = 0
 
-func NewRunner(bs BlockStore, iosize int64) (*Runner, error) {
+func NewRunner(bs BlockStore, iosize int64, sync SyncOpt) (*Runner, error) {
 	numRunners += 1
 
 	r := &Runner{
@@ -28,7 +38,9 @@ func NewRunner(bs BlockStore, iosize int64) (*Runner, error) {
 		blockstore:  bs,
 		blockvendor: global.BlockVendor,
 		reporter:    global.Reporter,
+		syncBatcher: global.SyncBatcher,
 		iosize:      iosize,
+		sync:        sync,
 		stop:        make(chan chan bool, 1),
 		errchan:     global.RunnerError,
 	}
@@ -70,17 +82,31 @@ func (r *Runner) Run() {
 	}
 }
 
-func (r *Runner) WriteBlock() error {
+func (r *Runner) WriteBlock() (e error) {
 	blk := r.blockvendor.GetBlock()
 	defer r.blockvendor.ReturnBlock(blk)
 
-	wr, err := r.blockstore.GetWriter(fmt.Sprintf("%s.%s", blk.Id.String(), blk.Extension))
+	wr, e := r.blockstore.GetWriter(fmt.Sprintf("%s.%s", blk.Id.String(), blk.Extension))
 
-	if err != nil {
-		return r.LogError(fmt.Errorf("cannot get block writer: %s", err))
+	if e != nil {
+		return r.LogError(fmt.Errorf("cannot get block writer: %s", e))
 	}
 
-	defer wr.Close()
+	defer func() {
+		if e == nil {
+			if r.sync == SyncOnClose {
+				e = wr.Sync()
+			} else if r.sync == SyncBatched {
+				e = r.syncBatcher.Sync(wr)
+			}
+		}
+
+		if e == nil {
+			e = wr.Close()
+		} else {
+			_ = wr.Close() // attempt to close, but don't nuke existing error
+		}
+	}()
 
 	rd := bytes.NewReader(blk.Data)
 	remaining := len(blk.Data)

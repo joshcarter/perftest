@@ -20,6 +20,7 @@ type Globals struct {
 	Reporter      *Reporter
 	RunnerInitFns []runnerInitFn
 	RunnerError   chan error
+	SyncBatcher   *SyncBatcher
 }
 
 var global = &Globals{
@@ -43,21 +44,21 @@ func main() {
 	viper.SetDefault("compressibility", "50")
 
 	if err := viper.ReadInConfig(); err != nil {
-		logger.Errf("error reading config file: %s\n", err)
+		logger.Errorf("error reading config file: %s\n", err)
 		os.Exit(-1)
 	}
 
 	iosize := viper.GetSizeInBytes("iosize")
 
 	if iosize == 0 {
-		logger.Errf("no io size specified; create 'iosize' in config.json")
+		logger.Errorf("no io size specified; create 'iosize' in config.json")
 		os.Exit(-1)
 	}
 
 	bssplit := viper.GetString("bssplit")
 
 	if len(bssplit) == 0 {
-		logger.Errf("no block size specified; create 'bssplit' in config.json")
+		logger.Errorf("no block size specified; create 'bssplit' in config.json")
 		os.Exit(-1)
 	}
 
@@ -66,13 +67,13 @@ func main() {
 	global.BlockVendor, err = NewBlockVendor(bssplit, compressibility)
 
 	if err != nil {
-		logger.Errf("cannot create block vendor: %s", err)
+		logger.Errorf("cannot create block vendor: %s", err)
 		os.Exit(-1)
 	}
 
 	reporterInterval := viper.GetDuration("reporter.interval")
 	if reporterInterval == 0 {
-		logger.Errf("no reporter interval specified; create 'reporter.interval' in config.json")
+		logger.Errorf("no reporter interval specified; create 'reporter.interval' in config.json")
 		os.Exit(-1)
 	}
 
@@ -85,7 +86,7 @@ func main() {
 	global.Reporter, err = NewReporter(reporterConfig)
 
 	if err != nil {
-		logger.Errf("failed creating reporter: %s", err)
+		logger.Errorf("failed creating reporter: %s", err)
 	}
 
 	runners := make([]*Runner, 0)
@@ -94,7 +95,7 @@ func main() {
 		runners, err = fn(runners)
 
 		if err != nil {
-			logger.Errf(err.Error())
+			logger.Errorf(err.Error())
 			os.Exit(-1)
 		}
 	}
@@ -110,7 +111,7 @@ func main() {
 			goto stop
 
 		case err := <-global.RunnerError:
-			logger.Errf("runner error: %s", err)
+			logger.Errorf("runner error: %s", err)
 			goto stop
 		}
 	}
@@ -144,6 +145,32 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 
 	iosize := viper.GetSizeInBytes("iosize")
 
+	var syncOpt SyncOpt = NoSync
+	switch viper.GetString("file.sync") {
+	case "close":
+		logger.Infof("syncing on file close")
+		syncOpt = SyncOnClose
+	case "batch", "batched", "batcher":
+		logger.Infof("syncing in batches")
+		syncOpt = SyncBatched
+	}
+
+	if syncOpt == SyncBatched {
+		syncBatcherInterval := viper.GetDuration("sync_batcher.interval")
+		if syncBatcherInterval == 0 {
+			logger.Errorf("no sync_batcher interval specified; create 'sync_batcher.interval' in config.json")
+			os.Exit(-1)
+		}
+
+		syncBatcherMaxPending := viper.GetInt("sync_batcher.max_pending")
+		if syncBatcherMaxPending == 0 {
+			logger.Errorf("no sync_batcher max_pending specified; create 'sync_batcher.max_pending' in config.json")
+			os.Exit(-1)
+		}
+
+		global.SyncBatcher = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending)
+	}
+
 	for _, path := range paths {
 		for i := 0; i < runnersPerPath; i++ {
 			bs, err := NewFileBlockStore(path)
@@ -152,7 +179,7 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 				return nil, fmt.Errorf("cannot init store: %s", err)
 			}
 
-			r, err := NewRunner(bs, int64(iosize))
+			r, err := NewRunner(bs, int64(iosize), syncOpt)
 
 			if err != nil {
 				return nil, fmt.Errorf("error initializing runner: %s", err)

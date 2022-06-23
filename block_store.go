@@ -2,13 +2,18 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 )
 
+type BlockWriter interface {
+	Write(p []byte) (n int, err error)
+	Close() error
+	Sync() error
+}
+
 type BlockStore interface {
-	GetWriter(name string) (io.WriteCloser, error)
+	GetWriter(name string) (BlockWriter, error)
 }
 
 type FileBlockStore struct {
@@ -25,7 +30,7 @@ func NewFileBlockStore(root string) (bs BlockStore, e error) {
 	return
 }
 
-func (f *FileBlockStore) GetWriter(name string) (file io.WriteCloser, e error) {
-	file, e = os.Create(filepath.Join(f.root, name))
+func (f *FileBlockStore) GetWriter(name string) (bw BlockWriter, e error) {
+	bw, e = os.Create(filepath.Join(f.root, name))
 	return
 }

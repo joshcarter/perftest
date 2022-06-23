@@ -1,13 +1,18 @@
 {
     "file": {
-        "paths": ["/tmp/runner1", "/tmp/runner2"],
-        "runners_per_path": 1
+        "paths": ["/tmp/file_writer"],
+        "runners_per_path": 10,
+        "sync": "batch"
+    },
+    "sync_batcher": {
+        "interval": "3s",
+        "max_pending": 3
     },
     "bssplit": "100MB/100/pak",
     "iosize": "1MB",
     "reporter": {
         "interval": "1s",
-        "logbandwidth": true,
+        "logbandwidth": false,
         "loglatency": false
     }
 }
