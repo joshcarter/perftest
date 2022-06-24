@@ -121,7 +121,7 @@ func (r *Runner) WriteObject() (e error) {
 
 	// r.Infof("starting block '%s': %d bytes", blk.Id, remaining)
 
-	for remaining > 0 {
+	for remaining > 0 && len(r.stop) == 0 {
 		var bw int64
 		iosize := r.iosize
 
@@ -156,11 +156,11 @@ func (r *Runner) WriteObject() (e error) {
 		}
 	}
 
-	// r.Infof("wrote block '%s'", blk.Id)
-
 	if r.syncWhen == SyncOnClose {
 		e = r.syncer.Sync(wr)
 	}
+
+	// r.Infof("wrote block '%s'", blk.Id)
 
 	return
 }
