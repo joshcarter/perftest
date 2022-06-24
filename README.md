@@ -89,12 +89,19 @@ Performance data logging is controlled with this config section:
 If `logbandwidth` is true, a bandwidth.log CSV file will be created with bytes/second for each interval. If
 `loglatency` is true, a latency.log CSV file will be created with each write sample captured.
 
-Finally, the `config.json` file should include an `iosize` entry to control the size of each write, and a `bssplit`
-entry which controls the size of each file. The `bssplit` format follows the same config option in the `fio` program.
+Finally, the `config.json` file should include an `iosize` entry to control the size of each write, and a `size`
+entry which controls the size of each file. The `size` format may be a simple size (e.g. `10MB`) or a combination.
 
-Examples of `bssplit`:
+    {
+      "size": "10MB",
+      "iosize": "256KB"
+    }
 
-* `100MB/100/dat`: all files will be 100MB in size and end with the file name suffix `.dat`
+Examples of `size`:
+
+* `10MB`: all files will be 10MB in size and have the default suffix.
+* `10MB/20:1MB/80`: 20% of the files will be 10MB, 80% will be 1MB.
+* `100MB/100/mp4`: all files will be 100MB in size and end with the file name suffix `.mp4`
 * `4MB/50/dat:8KB/50/xml`: 50% of the files will be 4MB in size with `dat` suffix, and 50% will be 8KB in size with `.xml` suffix.
 * `100MB/25/mov:8MB/25/mp4:8KB/50/xml`: 25% of the files will be 100MB in size with `.mov` suffix, 25% will be 8MB with `.mp4` suffix, 50% will be 8KB with `.xml` suffix
 
