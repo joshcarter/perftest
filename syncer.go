@@ -53,15 +53,16 @@ func (s *SyncInline) Report() {
 }
 
 type SyncRequest struct {
-	bw ObjectWriter
-	e  chan error
+	bw        ObjectWriter
+	submitted time.Time
+	e         chan error
 }
 
 type SyncBatcher struct {
 	log.Logger
 	incoming   chan *SyncRequest
 	pending    chan *SyncRequest
-	interval   time.Duration
+	maxWait    time.Duration
 	maxPending int
 	parallel   bool       // do syncs in many goroutines, or just one
 	syncTime   *Histogram // time waiting for sync only to complete
@@ -69,12 +70,12 @@ type SyncBatcher struct {
 	stop       chan chan bool
 }
 
-func NewSyncBatcher(interval time.Duration, maxPending int, parallel bool) *SyncBatcher {
+func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncBatcher {
 	s := &SyncBatcher{
 		Logger:     log.GetLogger("sync-batcher"),
 		incoming:   make(chan *SyncRequest, 100),
 		pending:    make(chan *SyncRequest, 100),
-		interval:   interval,
+		maxWait:    maxWait,
 		maxPending: maxPending,
 		parallel:   parallel,
 		syncTime:   NewHistogram(),
@@ -91,7 +92,7 @@ func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
 	start := time.Now()
 
 	// Create sync request and wait for it to be processed.
-	req := &SyncRequest{bw, make(chan error, 1)}
+	req := &SyncRequest{bw, time.Now(), make(chan error, 1)}
 	s.incoming <- req
 	e = <-req.e
 
@@ -109,7 +110,9 @@ func (s *SyncBatcher) Stop() {
 func (s *SyncBatcher) Run() {
 	s.Infof("running")
 
-	t := time.NewTimer(s.interval)
+	// Init timer with "long" time. It'll get reset to a shorter duration once we have a sync to process.
+	longInterval := time.Second * 10
+	t := time.NewTimer(longInterval)
 
 	for {
 		select {
@@ -120,8 +123,18 @@ func (s *SyncBatcher) Run() {
 			return
 
 		case req := <-s.incoming:
+			if len(s.pending) == 0 {
+				// Set timer to ensure the 1st pending sync gets processed within its deadline. Any syncs received
+				// between now and then will get processed in the same batch.
+				wait := s.maxWait - time.Now().Sub(req.submitted)
+				if !t.Stop() {
+					<-t.C
+				}
+				t.Reset(wait)
+			}
+
 			s.pending <- req
-			// s.Infof("enqueuing sync request (incoming %d, pending %d)", len(s.incoming), len(s.pending))
+
 			if len(s.pending) >= s.maxPending {
 				// s.Infof("flushing early")
 				s.SyncPending()
@@ -130,13 +143,13 @@ func (s *SyncBatcher) Run() {
 				if !t.Stop() {
 					<-t.C
 				}
-				t.Reset(s.interval)
+				t.Reset(longInterval)
 			}
 
 		case <-t.C:
-			// s.Infof("tick")
+			// s.Infof("flushing because deadline expired")
 			s.SyncPending()
-			t.Reset(s.interval)
+			t.Reset(longInterval)
 		}
 	}
 }
@@ -162,6 +175,8 @@ func (s *SyncBatcher) syncPendingSequential(pending int) {
 	for i := 0; i < pending; i++ {
 		req := <-s.pending
 
+		// fmt.Printf("req %d of %d waited %d ms\n", i+1, pending, time.Now().Sub(req.submitted).Milliseconds())
+
 		start := time.Now()
 		e := req.bw.Sync()
 		s.syncTime.Add(time.Now().Sub(start))
@@ -178,6 +193,8 @@ func (s *SyncBatcher) syncPendingParallel(pending int) {
 
 		wg.Add(1)
 		go func(req *SyncRequest, syncTime *Histogram) {
+			// fmt.Printf(" - req waited %d ms\n", time.Now().Sub(req.submitted).Milliseconds())
+
 			start := time.Now()
 			e := req.bw.Sync()
 			s.syncTime.Add(time.Now().Sub(start))

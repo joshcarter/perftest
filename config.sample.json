@@ -1,13 +1,14 @@
 {
     "file": {
         "paths": ["/tmp/runner1", "/tmp/runner2"],
-        "runners_per_path": 1,
+        "runners_per_path": 5,
         "sync": "batch",
         "sync_on": "close"
     },
     "sync_batcher": {
-        "interval": "3s",
-        "max_pending": 3
+        "max_wait": "250ms",
+        "max_pending": 5,
+        "parallel": false
     },
     "size": "4MB/25/mov:8MB/25/mp4:8KB/50/xml",
     "iosize": "1MB",

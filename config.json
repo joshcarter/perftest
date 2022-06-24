@@ -3,16 +3,15 @@
         "paths": ["/tmp/perftest"],
         "runners_per_path": 10,
         "sync": "batch",
-        "sync_on": "close",
-        "open_flags": ["O_SYNC"]
+        "sync_on": "close"
     },
     "sync_batcher": {
-        "interval": "2s",
-        "max_pending": 5,
+        "max_wait": "100ms",
+        "max_pending": 15,
         "parallel": true
     },
-    "size": "5MB",
-    "iosize": "256KB",
+    "size": "4MB",
+    "iosize": "1MB",
     "reporter": {
         "interval": "1s",
         "logbandwidth": false,

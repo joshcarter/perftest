@@ -40,7 +40,7 @@ func main() {
 	viper.AddConfigPath(".")
 	viper.SetDefault("iosize", "1MB")
 	viper.SetDefault("size", "4MB/100/dat")
-	viper.SetDefault("reporter.interval", "1s")
+	viper.SetDefault("reporter.maxWait", "1s")
 	viper.SetDefault("compressibility", "50")
 
 	if err = viper.ReadInConfig(); err != nil {
@@ -151,21 +151,21 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 	case "batch", "batched", "batcher":
 		logger.Infof("syncing in batches")
 
-		syncBatcherInterval := viper.GetDuration("sync_batcher.interval")
-		if syncBatcherInterval == 0 {
-			logger.Errorf("no sync_batcher interval specified; create 'sync_batcher.interval' in config.json")
+		syncBatcherMaxWait := viper.GetDuration("sync_batcher.max_wait")
+		if syncBatcherMaxWait == 0 {
+			logger.Errorf("no max_wait specified; create 'sync_batcher.max_wait' in config.json")
 			os.Exit(-1)
 		}
 
 		syncBatcherMaxPending := viper.GetInt("sync_batcher.max_pending")
 		if syncBatcherMaxPending == 0 {
-			logger.Errorf("no sync_batcher max_pending specified; create 'sync_batcher.max_pending' in config.json")
+			logger.Errorf("no max_pending specified; create 'sync_batcher.max_pending' in config.json")
 			os.Exit(-1)
 		}
 
 		syncBatcherParallel := viper.GetBool("sync_batcher.parallel")
 
-		global.Syncer = NewSyncBatcher(syncBatcherInterval, syncBatcherMaxPending, syncBatcherParallel)
+		global.Syncer = NewSyncBatcher(syncBatcherMaxWait, syncBatcherMaxPending, syncBatcherParallel)
 		willSync = true
 	default:
 		global.Syncer = &SyncNone{}
