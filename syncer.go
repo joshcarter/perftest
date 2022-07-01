@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/spectralogic/go-core/log"
 	"sync"
@@ -13,6 +14,9 @@ type Syncer interface {
 
 	// Log a report on sync syncTime and reset them.
 	Report()
+
+	// Stop any background goroutines.
+	Stop()
 }
 
 type SyncNone struct{}
@@ -22,6 +26,9 @@ func (s *SyncNone) Sync(_ ObjectWriter) error {
 }
 
 func (s *SyncNone) Report() {
+}
+
+func (s *SyncNone) Stop() {
 }
 
 type SyncInline struct {
@@ -52,6 +59,9 @@ func (s *SyncInline) Report() {
 	s.timings.Reset()
 }
 
+func (s *SyncInline) Stop() {
+}
+
 type SyncRequest struct {
 	bw        ObjectWriter
 	submitted time.Time
@@ -67,10 +77,13 @@ type SyncBatcher struct {
 	parallel   bool       // do syncs in many goroutines, or just one
 	syncTime   *Histogram // time waiting for sync only to complete
 	totalTime  *Histogram // total time waiting (batch delay + sync)
-	stop       chan chan bool
+	stop       func()
 }
 
 func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncBatcher {
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
 	s := &SyncBatcher{
 		Logger:     log.GetLogger("sync-batcher"),
 		incoming:   make(chan *SyncRequest, 100),
@@ -80,10 +93,17 @@ func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncB
 		parallel:   parallel,
 		syncTime:   NewHistogram(),
 		totalTime:  NewHistogram(),
-		stop:       make(chan chan bool),
+		stop: func() {
+			cancel()
+			wg.Wait()
+		},
 	}
 
-	go s.Run()
+	wg.Add(1)
+	go func() {
+		s.Run(ctx)
+		wg.Done()
+	}()
 
 	return s
 }
@@ -101,13 +121,11 @@ func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
 }
 
 func (s *SyncBatcher) Stop() {
-	s.Infof("stopping")
-	stopChan := make(chan bool)
-	s.stop <- stopChan // request stop
-	<-stopChan         // stop acknowledged
+	s.stop()
+	s.Infof("stopped")
 }
 
-func (s *SyncBatcher) Run() {
+func (s *SyncBatcher) Run(ctx context.Context) {
 	s.Infof("running")
 
 	// Init timer with "long" time. It'll get reset to a shorter duration once we have a sync to process.
@@ -116,10 +134,8 @@ func (s *SyncBatcher) Run() {
 
 	for {
 		select {
-		case stopChan := <-s.stop:
+		case <-ctx.Done():
 			t.Stop()
-			stopChan <- true
-			s.Infof("stopped")
 			return
 
 		case req := <-s.incoming:

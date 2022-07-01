@@ -2,17 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 
 	"github.com/spectralogic/go-core/log"
-)
-
-type SyncWhen int
-
-const (
-	SyncOnClose SyncWhen = 1
-	SyncOnWrite SyncWhen = 2
 )
 
 type Runner struct {
@@ -23,24 +17,18 @@ type Runner struct {
 	syncer       Syncer
 	syncWhen     SyncWhen
 	iosize       int64
-	stop         chan chan bool
 	errchan      chan error
 }
 
-var numRunners = 0
-
-func NewRunner(os ObjectStore, iosize int64, syncWhen SyncWhen) (*Runner, error) {
-	numRunners += 1
-
+func NewRunner(os ObjectStore, n int) (*Runner, error) {
 	r := &Runner{
-		Logger:       log.GetLogger(fmt.Sprintf("runner.%d", numRunners)),
+		Logger:       log.GetLogger(fmt.Sprintf("runner.%d", n)),
 		objectStore:  os,
 		objectVendor: global.ObjectVendor,
 		reporter:     global.Reporter,
 		syncer:       global.Syncer,
-		syncWhen:     syncWhen,
-		iosize:       iosize,
-		stop:         make(chan chan bool, 1),
+		syncWhen:     global.SyncWhen,
+		iosize:       global.IoSize,
 		errchan:      global.RunnerError,
 	}
 
@@ -49,42 +37,16 @@ func NewRunner(os ObjectStore, iosize int64, syncWhen SyncWhen) (*Runner, error)
 	return r, nil
 }
 
-func (r *Runner) Stop() {
-	// r.Infof("stopping")
-	stopChan := make(chan bool, 1)
-	r.stop <- stopChan // request stop
-	<-stopChan         // stop acknowledged
-}
-
-func StopRunners(runners []*Runner) {
-	stopChans := make([]chan bool, len(runners))
-
-	// Request for all to stop
-	for i, r := range runners {
-		stopChan := make(chan bool, 1)
-		// r.Infof("stopping")
-		r.stop <- stopChan
-		stopChans[i] = stopChan
-	}
-
-	// Wait for all to stop
-	for _, stopChan := range stopChans {
-		<-stopChan
-	}
-}
-
-func (r *Runner) Run() {
+func (r *Runner) Run(ctx context.Context) {
 	r.Infof("running")
 
 	for {
 		select {
-		case stopChan := <-r.stop:
-			stopChan <- true
-			r.Infof("stopped")
+		case <-ctx.Done():
 			return
 
 		default:
-			err := r.WriteObject()
+			err := r.WriteObject(ctx)
 
 			if err != nil {
 				select {
@@ -98,7 +60,7 @@ func (r *Runner) Run() {
 	}
 }
 
-func (r *Runner) WriteObject() (e error) {
+func (r *Runner) WriteObject(ctx context.Context) (e error) {
 	blk := r.objectVendor.GetObject()
 	defer r.objectVendor.ReturnObject(blk)
 
@@ -121,7 +83,7 @@ func (r *Runner) WriteObject() (e error) {
 
 	// r.Infof("starting block '%s': %d bytes", blk.Id, remaining)
 
-	for remaining > 0 && len(r.stop) == 0 {
+	for remaining > 0 && len(ctx.Done()) == 0 {
 		var bw int64
 		iosize := r.iosize
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sync"
@@ -25,19 +26,25 @@ type Sample struct {
 type Reporter struct {
 	log.Logger
 	config     *ReporterConfig
+	stop       func()
 	samples    chan *Sample
-	stop       chan chan bool
+	samplePool sync.Pool
 	bwlog      *os.File
 	latlog     *os.File
-	samplePool sync.Pool
 }
 
 func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
 	r = &Reporter{
-		Logger:  log.GetLogger("reporter"),
-		config:  config,
+		Logger: log.GetLogger("reporter"),
+		config: config,
+		stop: func() {
+			cancel()
+			wg.Wait()
+		},
 		samples: make(chan *Sample, 1000),
-		stop:    make(chan chan bool, 1),
 		samplePool: sync.Pool{
 			New: func() interface{} {
 				return &Sample{}
@@ -45,47 +52,70 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 		},
 	}
 
+	if err = r.openFiles(); err != nil {
+		return nil, err
+	}
+
+	wg.Add(1)
+	go func() {
+		r.Run(ctx)
+		wg.Done()
+	}()
+
+	return
+}
+
+func (r *Reporter) openFiles() (err error) {
+	defer func() {
+		// Close both files on error
+		if err != nil {
+			if r.bwlog != nil {
+				_ = r.bwlog.Close()
+			}
+			if r.latlog != nil {
+				_ = r.latlog.Close()
+			}
+		}
+	}()
+
 	if r.config.BandwidthEnabled {
-		r.bwlog, err = os.OpenFile("bandwidth.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		r.bwlog, err = os.OpenFile(fmt.Sprintf("bandwidth.%s.csv", global.RunId), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 
 		if err != nil {
 			err = r.LogError(fmt.Errorf("failed creating bandwidth log: %s", err))
 			return
 		}
 
-		fmt.Fprintf(r.bwlog, "# %s, %s\n", "Time(sec)", "Rate(bytes/sec)")
+		_, err = fmt.Fprintf(r.bwlog, "# %s, %s\n", "Time(sec)", "Rate(bytes/sec)")
+
+		if err != nil {
+			err = r.LogError(fmt.Errorf("failed writing to bandwidth log: %s", err))
+			return
+		}
 	}
 
 	if r.config.LatencyEnabled {
-		r.latlog, err = os.OpenFile("latency.log", os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		r.latlog, err = os.OpenFile(fmt.Sprintf("latency.%s.csv", global.RunId), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 
 		if err != nil {
 			err = r.LogError(fmt.Errorf("failed creating latency log: %s", err))
 			return
 		}
 
-		fmt.Fprintf(r.latlog, "# %s, %s, %s\n", "Time(sec)", "Latency(sec)", "Size(bytes)")
+		_, err = fmt.Fprintf(r.latlog, "# %s, %s, %s\n", "Time(sec)", "Latency(sec)", "Size(bytes)")
+
+		if err != nil {
+			err = r.LogError(fmt.Errorf("failed writing to latency log: %s", err))
+			return
+		}
 	}
 
-	go r.Run()
-	return
+	return nil
 }
 
 func (r *Reporter) Stop() {
-	r.Infof("stopping")
-	stopChan := make(chan bool, 1)
-	r.stop <- stopChan // request stop
-	<-stopChan         // stop acknowledged
-
-	if r.bwlog != nil {
-		r.bwlog.Close()
-		r.bwlog = nil
-	}
-
-	if r.latlog != nil {
-		r.latlog.Close()
-		r.latlog = nil
-	}
+	r.stop()
+	r.Infof("stopped")
 }
 
 func (r *Reporter) GetSample() *Sample {
@@ -100,8 +130,18 @@ func (r *Reporter) CaptureSample(s *Sample, size int64) {
 	r.samples <- s
 }
 
-func (r *Reporter) Run() {
-	defer r.bwlog.Close()
+func (r *Reporter) Run(ctx context.Context) {
+	defer func() {
+		if r.bwlog != nil {
+			r.bwlog.Close()
+			r.bwlog = nil
+		}
+
+		if r.latlog != nil {
+			r.latlog.Close()
+			r.latlog = nil
+		}
+	}()
 
 	r.Infof("running")
 	intervalBytes := int64(0)
@@ -113,11 +153,9 @@ func (r *Reporter) Run() {
 
 	for {
 		select {
-		case stopChan := <-r.stop:
+		case <-ctx.Done():
 			t.Stop()
 			t2.Stop()
-			stopChan <- true
-			r.Infof("stopped")
 			return
 
 		case sample := <-r.samples:

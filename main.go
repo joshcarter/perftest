@@ -2,25 +2,33 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
-
 	"github.com/spectralogic/go-core/log"
 	"github.com/spf13/viper"
+	"os"
+	"os/signal"
+	"time"
 )
 
-// runnerInitFn is a function that takes a runner list, starts its own
-// runners, and returns a new runner list with its own runners
-// inserted (if any). Error should only be non-nil if there was a
-// fatal error starting runners.
-type runnerInitFn func([]*Runner) ([]*Runner, error)
+type SyncWhen int
+
+const (
+	SyncOnClose SyncWhen = 1
+	SyncOnWrite SyncWhen = 2
+)
+
+// runnerInitFn is a function that takes a RunnerList and adds its own Error
+// should be non-nil if there was a fatal error starting runners.
+type runnerInitFn func(rl *RunnerList) error
 
 type Globals struct {
 	ObjectVendor  *ObjectVendor
 	Reporter      *Reporter
+	RunId         string // unique name for this run
 	RunnerInitFns []runnerInitFn
 	RunnerError   chan error
 	Syncer        Syncer
+	SyncWhen      SyncWhen
+	IoSize        int64
 }
 
 var global = &Globals{
@@ -29,6 +37,7 @@ var global = &Globals{
 }
 
 func init() {
+	global.RunId = time.Now().Format("2006-02-01-15-04-05")
 	global.RunnerInitFns = append(global.RunnerInitFns, startFileRunners)
 }
 
@@ -89,16 +98,18 @@ func main() {
 		logger.Errorf("failed creating reporter: %s", err)
 	}
 
-	runners := make([]*Runner, 0)
+	rl := NewRunnerList()
 
 	for _, fn := range global.RunnerInitFns {
-		runners, err = fn(runners)
+		err = fn(rl)
 
 		if err != nil {
 			logger.Errorf(err.Error())
 			os.Exit(-1)
 		}
 	}
+
+	rl.Start()
 
 	logger.Infof("running... press Control-C to stop.")
 	sig := make(chan os.Signal, 1)
@@ -118,29 +129,28 @@ func main() {
 
 stop:
 
-	StopRunners(runners)
+	rl.Stop()
+	global.Syncer.Stop()
 	global.Reporter.Stop()
-
 	os.Exit(0)
 }
 
-func startFileRunners(runners []*Runner) ([]*Runner, error) {
+func startFileRunners(rl *RunnerList) (err error) {
 	logger := log.GetLogger("main")
 	paths := viper.GetStringSlice("file.paths")
-	// fsync := viper.GetString("fsync")
 
 	if len(paths) == 0 {
 		logger.Infof("no file runner paths specified; skipping")
-		return runners, nil
+		return nil
 	}
 
 	runnersPerPath := viper.GetInt("file.runners_per_path")
 
 	if runnersPerPath == 0 {
-		return nil, fmt.Errorf("file store must have more than 1 runner per path (set file.runners_per_path)")
+		return fmt.Errorf("file store must have more than 1 runner per path (set file.runners_per_path)")
 	}
 
-	iosize := viper.GetSizeInBytes("iosize")
+	global.IoSize = int64(viper.GetSizeInBytes("iosize"))
 
 	willSync := false
 	switch viper.GetString("file.sync") {
@@ -153,14 +163,12 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 
 		syncBatcherMaxWait := viper.GetDuration("sync_batcher.max_wait")
 		if syncBatcherMaxWait == 0 {
-			logger.Errorf("no max_wait specified; create 'sync_batcher.max_wait' in config.json")
-			os.Exit(-1)
+			return fmt.Errorf("no max_wait specified; create 'sync_batcher.max_wait' in config.json")
 		}
 
 		syncBatcherMaxPending := viper.GetInt("sync_batcher.max_pending")
 		if syncBatcherMaxPending == 0 {
-			logger.Errorf("no max_pending specified; create 'sync_batcher.max_pending' in config.json")
-			os.Exit(-1)
+			return fmt.Errorf("no max_pending specified; create 'sync_batcher.max_pending' in config.json")
 		}
 
 		syncBatcherParallel := viper.GetBool("sync_batcher.parallel")
@@ -171,11 +179,11 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 		global.Syncer = &SyncNone{}
 	}
 
-	var syncWhen = SyncOnClose
+	global.SyncWhen = SyncOnClose
 	if willSync {
 		switch viper.GetString("file.sync_on") {
 		case "write", "io":
-			syncWhen = SyncOnWrite
+			global.SyncWhen = SyncOnWrite
 			logger.Infof("sync after every write")
 		default:
 			logger.Infof("sync on file close")
@@ -183,26 +191,28 @@ func startFileRunners(runners []*Runner) ([]*Runner, error) {
 	}
 
 	openFlags := parseOpenFlags(viper.GetStringSlice("file.open_flags"))
+	totalRunners := 0
 
 	for _, path := range paths {
+		var o ObjectStore
+
+		if o, err = NewFileObjectStore(path, openFlags); err != nil {
+			return fmt.Errorf("cannot init store: %s", err)
+		}
+
+		rl.AddStore(o)
+
 		for i := 0; i < runnersPerPath; i++ {
-			bs, err := NewFileObjectStore(path, openFlags)
+			var r *Runner
 
-			if err != nil {
-				return nil, fmt.Errorf("cannot init store: %s", err)
+			if r, err = NewRunner(o, totalRunners+1); err != nil {
+				return fmt.Errorf("error initializing runner: %s", err)
 			}
 
-			r, err := NewRunner(bs, int64(iosize), syncWhen)
-
-			if err != nil {
-				return nil, fmt.Errorf("error initializing runner: %s", err)
-			}
-
-			go r.Run()
-
-			runners = append(runners, r)
+			rl.AddRunner(r)
+			totalRunners++
 		}
 	}
 
-	return runners, nil
+	return nil
 }

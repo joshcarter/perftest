@@ -14,6 +14,7 @@ type ObjectWriter interface {
 
 type ObjectStore interface {
 	GetWriter(name string) (ObjectWriter, error)
+	Cleanup() error
 }
 
 type FileObjectStore struct {
@@ -22,16 +23,22 @@ type FileObjectStore struct {
 }
 
 func NewFileObjectStore(root string, openFlags int) (bs ObjectStore, e error) {
-	if e = os.MkdirAll(root, 0750); e != nil {
+	path := filepath.Join(root, global.RunId)
+
+	if e = os.MkdirAll(path, 0750); e != nil {
 		e = fmt.Errorf("cannot init file store: %s", e)
 		return
 	}
 
-	bs = &FileObjectStore{root, openFlags}
+	bs = &FileObjectStore{path, openFlags}
 	return
 }
 
 func (f *FileObjectStore) GetWriter(name string) (bw ObjectWriter, e error) {
 	bw, e = os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
 	return
+}
+
+func (f *FileObjectStore) Cleanup() error {
+	return os.RemoveAll(f.root)
 }
