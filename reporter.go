@@ -15,6 +15,7 @@ type ReporterConfig struct {
 	LatencyEnabled   bool
 	BandwidthEnabled bool
 	Interval         time.Duration
+	WarmUp           time.Duration
 }
 
 type Sample struct {
@@ -27,6 +28,7 @@ type Reporter struct {
 	log.Logger
 	config     *ReporterConfig
 	stop       func()
+	preStop    bool // stop logging if true
 	samples    chan *Sample
 	samplePool sync.Pool
 	bwlog      *os.File
@@ -44,6 +46,7 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 			cancel()
 			wg.Wait()
 		},
+		preStop: false,
 		samples: make(chan *Sample, 1000),
 		samplePool: sync.Pool{
 			New: func() interface{} {
@@ -67,14 +70,8 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 
 func (r *Reporter) openFiles() (err error) {
 	defer func() {
-		// Close both files on error
 		if err != nil {
-			if r.bwlog != nil {
-				_ = r.bwlog.Close()
-			}
-			if r.latlog != nil {
-				_ = r.latlog.Close()
-			}
+			r.closeFiles()
 		}
 	}()
 
@@ -113,6 +110,23 @@ func (r *Reporter) openFiles() (err error) {
 	return nil
 }
 
+func (r *Reporter) closeFiles() {
+	if r.bwlog != nil {
+		_ = r.bwlog.Close()
+		r.bwlog = nil
+	}
+
+	if r.latlog != nil {
+		_ = r.latlog.Close()
+		r.latlog = nil
+	}
+}
+
+// PreStop is used to disable logging before runners are shut down.
+func (r *Reporter) PreStop() {
+	r.preStop = true
+}
+
 func (r *Reporter) Stop() {
 	r.stop()
 	r.Infof("stopped")
@@ -131,17 +145,11 @@ func (r *Reporter) CaptureSample(s *Sample, size int64) {
 }
 
 func (r *Reporter) Run(ctx context.Context) {
-	defer func() {
-		if r.bwlog != nil {
-			r.bwlog.Close()
-			r.bwlog = nil
-		}
+	defer r.closeFiles()
 
-		if r.latlog != nil {
-			r.latlog.Close()
-			r.latlog = nil
-		}
-	}()
+	if e := r.warmUp(ctx); e != nil {
+		return
+	}
 
 	r.Infof("running")
 	intervalBytes := int64(0)
@@ -161,7 +169,7 @@ func (r *Reporter) Run(ctx context.Context) {
 		case sample := <-r.samples:
 			intervalBytes += sample.Size
 
-			if r.latlog != nil {
+			if r.latlog != nil && !r.preStop {
 				fmt.Fprintf(r.latlog, "%.3f, %.6f, %d\n",
 					sample.Finish.Sub(startTime).Seconds(),
 					sample.Finish.Sub(sample.Start).Seconds(),
@@ -171,22 +179,52 @@ func (r *Reporter) Run(ctx context.Context) {
 			r.samplePool.Put(sample)
 
 		case tick := <-t.C:
-			interval := tick.Sub(lastReportTime).Seconds()
+			if !r.preStop {
+				interval := tick.Sub(lastReportTime).Seconds()
 
-			// Convert from accumulated bytes in the interval to the
-			// rate (bytes/sec) for that interval
-			rate := int64(float64(intervalBytes) / interval)
-			fmt.Printf("- %s/sec\n", fmt2.SprintSize(rate))
+				// Convert from accumulated bytes in the interval to the
+				// rate (bytes/sec) for that interval
+				rate := int64(float64(intervalBytes) / interval)
+				fmt.Printf("- %s/sec\n", fmt2.SprintSize(rate))
 
-			if r.bwlog != nil {
-				fmt.Fprintf(r.bwlog, "%.3f, %d\n", tick.Sub(startTime).Seconds(), rate)
+				if r.bwlog != nil {
+					fmt.Fprintf(r.bwlog, "%.3f, %d\n", tick.Sub(startTime).Seconds(), rate)
+				}
 			}
 
 			lastReportTime = tick
 			intervalBytes = int64(0)
 
 		case <-t2.C:
-			global.Syncer.Report()
+			if !r.preStop {
+				global.Syncer.Report()
+			}
+		}
+	}
+}
+
+// warmUp simply delays reporting until the warm-up time is complete, giving runners some time to get to speed.
+func (r *Reporter) warmUp(ctx context.Context) error {
+	warmUp := r.config.WarmUp
+	if warmUp == 0 {
+		return nil
+	}
+
+	r.Infof("not enabled yet, in pre-start (%.0f seconds)", warmUp.Seconds())
+	t := time.NewTimer(warmUp)
+
+	for {
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return fmt.Errorf("cancelled")
+
+		case <-t.C:
+			r.Infof("warm-up finished")
+			return nil
+
+		case sample := <-r.samples:
+			r.samplePool.Put(sample) // discard any samples during warmup
 		}
 	}
 }

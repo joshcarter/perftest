@@ -88,6 +88,7 @@ func main() {
 
 	reporterConfig := &ReporterConfig{
 		Interval:         reporterInterval,
+		WarmUp:           viper.GetDuration("reporter.warmup"),
 		LatencyEnabled:   viper.GetBool("reporter.loglatency"),
 		BandwidthEnabled: viper.GetBool("reporter.logbandwidth"),
 	}
@@ -98,10 +99,10 @@ func main() {
 		logger.Errorf("failed creating reporter: %s", err)
 	}
 
-	rl := NewRunnerList()
+	runners := NewRunnerList()
 
 	for _, fn := range global.RunnerInitFns {
-		err = fn(rl)
+		err = fn(runners)
 
 		if err != nil {
 			logger.Errorf(err.Error())
@@ -109,7 +110,7 @@ func main() {
 		}
 	}
 
-	rl.Start()
+	runners.Start()
 
 	logger.Infof("running... press Control-C to stop.")
 	sig := make(chan os.Signal, 1)
@@ -129,7 +130,8 @@ func main() {
 
 stop:
 
-	rl.Stop()
+	global.Reporter.PreStop() // stops further logging
+	runners.Stop()
 	global.Syncer.Stop()
 	global.Reporter.Stop()
 	os.Exit(0)
