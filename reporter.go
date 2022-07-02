@@ -3,7 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +20,7 @@ type ReporterConfig struct {
 	BandwidthEnabled bool
 	Interval         time.Duration
 	WarmUp           time.Duration
+	Capture          map[string]string // commands to run at startup
 }
 
 type Sample struct {
@@ -27,6 +32,7 @@ type Sample struct {
 type Reporter struct {
 	log.Logger
 	config     *ReporterConfig
+	dir        string // directory for log files
 	stop       func()
 	preStop    bool // stop logging if true
 	samples    chan *Sample
@@ -35,13 +41,14 @@ type Reporter struct {
 	latlog     *os.File
 }
 
-func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
+func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
 	r = &Reporter{
 		Logger: log.GetLogger("reporter"),
 		config: config,
+		dir:    global.RunId,
 		stop: func() {
 			cancel()
 			wg.Wait()
@@ -55,8 +62,17 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 		},
 	}
 
-	if err = r.openFiles(); err != nil {
-		return nil, err
+	if e = os.MkdirAll(r.dir, 0750); e != nil {
+		e = fmt.Errorf("cannot make log directory: %s", e)
+		return
+	}
+
+	if e = r.openFiles(); e != nil {
+		return nil, e
+	}
+
+	if e = r.captureRunState(); e != nil {
+		return nil, e
 	}
 
 	wg.Add(1)
@@ -68,41 +84,43 @@ func NewReporter(config *ReporterConfig) (r *Reporter, err error) {
 	return
 }
 
-func (r *Reporter) openFiles() (err error) {
+func (r *Reporter) openFiles() (e error) {
 	defer func() {
-		if err != nil {
+		if e != nil {
 			r.closeFiles()
 		}
 	}()
 
 	if r.config.BandwidthEnabled {
-		r.bwlog, err = os.OpenFile(fmt.Sprintf("bandwidth.%s.csv", global.RunId), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		path := filepath.Join(r.dir, "bandwidth.csv")
+		r.bwlog, e = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0664)
 
-		if err != nil {
-			err = r.LogError(fmt.Errorf("failed creating bandwidth log: %s", err))
+		if e != nil {
+			e = r.LogError(fmt.Errorf("failed creating bandwidth log: %s", e))
 			return
 		}
 
-		_, err = fmt.Fprintf(r.bwlog, "# %s, %s\n", "Time(sec)", "Rate(bytes/sec)")
+		_, e = fmt.Fprintf(r.bwlog, "# %s, %s\n", "Time(sec)", "Rate(bytes/sec)")
 
-		if err != nil {
-			err = r.LogError(fmt.Errorf("failed writing to bandwidth log: %s", err))
+		if e != nil {
+			e = r.LogError(fmt.Errorf("failed writing to bandwidth log: %s", e))
 			return
 		}
 	}
 
 	if r.config.LatencyEnabled {
-		r.latlog, err = os.OpenFile(fmt.Sprintf("latency.%s.csv", global.RunId), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		path := filepath.Join(r.dir, "latency.csv")
+		r.latlog, e = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0664)
 
-		if err != nil {
-			err = r.LogError(fmt.Errorf("failed creating latency log: %s", err))
+		if e != nil {
+			e = r.LogError(fmt.Errorf("failed creating latency log: %s", e))
 			return
 		}
 
-		_, err = fmt.Fprintf(r.latlog, "# %s, %s, %s\n", "Time(sec)", "Latency(sec)", "Size(bytes)")
+		_, e = fmt.Fprintf(r.latlog, "# %s, %s, %s\n", "Time(sec)", "Latency(sec)", "Size(bytes)")
 
-		if err != nil {
-			err = r.LogError(fmt.Errorf("failed writing to latency log: %s", err))
+		if e != nil {
+			e = r.LogError(fmt.Errorf("failed writing to latency log: %s", e))
 			return
 		}
 	}
@@ -120,6 +138,44 @@ func (r *Reporter) closeFiles() {
 		_ = r.latlog.Close()
 		r.latlog = nil
 	}
+}
+
+func copyFile(src string, dst string) (e error) {
+	input, e := ioutil.ReadFile(src)
+	if e != nil {
+		return fmt.Errorf("cannot read %s: %s", src, e)
+	}
+
+	e = ioutil.WriteFile(dst, input, 0664)
+	if e != nil {
+		return fmt.Errorf("cannot write %s: %s", dst, e)
+	}
+
+	return nil
+}
+
+func (r *Reporter) captureRunState() (e error) {
+	e = copyFile("config.json", filepath.Join(r.dir, "config.json"))
+	if e != nil {
+		return e
+	}
+
+	for file, command := range r.config.Capture {
+		var out []byte
+
+		c := strings.Split(command, " ")
+		out, e = exec.Command(c[0], c[1:]...).Output()
+		if e != nil {
+			return fmt.Errorf("running '%s': %s", command, e)
+		}
+
+		e = ioutil.WriteFile(filepath.Join(r.dir, file), out, 0664)
+		if e != nil {
+			return fmt.Errorf("cannot write %s: %s", file, e)
+		}
+	}
+
+	return nil
 }
 
 // PreStop is used to disable logging before runners are shut down.

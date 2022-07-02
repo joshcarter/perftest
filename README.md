@@ -2,6 +2,21 @@
 
 I/O performance test (currently just file writes) in Go. Run `./perftest` from a console and press Control-C to stop.
 
+## TODO ##
+
+FIX:
+
+- All runners have the same log name?
+
+IMPROVE:
+
+- Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
+  while other writers are waiting for their fsync to finish.
+
+- Summary printed on exit, with warm-up time and stop measurement before shutdown.
+
+- Time-based run, and/or exit after steady state reached for a certain time.
+
 ## Structure ##
 
     +---------------+
@@ -80,11 +95,20 @@ Performance data logging is controlled with this config section:
 
     {
         "reporter": {
+            "warmup": "1s",
             "interval": "1s",
+            "capture": {"df.txt":"df -h /tmp"},
             "logbandwidth": true,
             "loglatency": false
         }
     }
+
+The `warmup` setting, if present, will prevent the reporter from capturing samples for the given duration. The
+`interval` will control how often bandwidth is reported to the console and logged.
+
+The `capture` setting is a string-string map that allows commands to be run and their output captured before the
+test runs. The keys are used as file names, and values the commands to be run. The output of the command will be
+written to the filename specified by the key.
 
 If `logbandwidth` is true, a bandwidth.log CSV file will be created with bytes/second for each interval. If
 `loglatency` is true, a latency.log CSV file will be created with each write sample captured.

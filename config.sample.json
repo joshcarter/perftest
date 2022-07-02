@@ -16,6 +16,7 @@
     "reporter": {
         "interval": "1s",
         "warmup": "1s",
+        "capture": [{"df.txt":"df -h /tmp"}],
         "logbandwidth": true,
         "loglatency": false
     }

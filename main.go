@@ -91,12 +91,14 @@ func main() {
 		WarmUp:           viper.GetDuration("reporter.warmup"),
 		LatencyEnabled:   viper.GetBool("reporter.loglatency"),
 		BandwidthEnabled: viper.GetBool("reporter.logbandwidth"),
+		Capture:          viper.GetStringMapString("reporter.capture"),
 	}
 
 	global.Reporter, err = NewReporter(reporterConfig)
 
 	if err != nil {
 		logger.Errorf("failed creating reporter: %s", err)
+		os.Exit(-1)
 	}
 
 	runners := NewRunnerList()
@@ -134,6 +136,7 @@ stop:
 	runners.Stop()
 	global.Syncer.Stop()
 	global.Reporter.Stop()
+	logger.Infof("finished run %s", global.RunId)
 	os.Exit(0)
 }
 
