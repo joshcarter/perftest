@@ -7,13 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/spectralogic/go-core/log"
-	"github.com/spectralogic/go-core/sequence"
-	"github.com/spectralogic/go-core/ulid"
+	"github.com/oklog/ulid/v2"
+	"go.uber.org/zap"
 )
 
 type Object struct {
-	Id        *ulid.ULID
+	Id        ulid.ULID
 	Extension string // file extension
 	dataBuf   []byte // full-size buffer
 	Data      []byte // slice of dataBuf to use (may be smaller)
@@ -27,9 +26,9 @@ type ObjectVendorConfig struct {
 }
 
 type ObjectVendor struct {
-	log.Logger
+	*zap.SugaredLogger
 	config     *ObjectVendorConfig
-	seq        *sequence.ByteSequence
+	seq        *ByteSequence
 	objectPool sync.Pool
 }
 
@@ -50,13 +49,13 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 	config.Compressibility = compressibility
 
 	b := &ObjectVendor{
-		Logger: log.GetLogger("objectVendor"),
-		config: config,
-		seq:    sequence.NewByteSequence(int64(0)),
+		SugaredLogger: Logger(),
+		config:        config,
+		seq:           NewByteSequence(int64(0)),
 		objectPool: sync.Pool{
 			New: func() interface{} {
 				return &Object{
-					Id:      nil, // ID gets assigned later
+					Id:      ulid.Make(),
 					dataBuf: make([]byte, config.MaxSize),
 				}
 			},
@@ -71,8 +70,6 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 
 func (b *ObjectVendor) GetObject() *Object {
 	blk := b.objectPool.Get().(*Object)
-
-	blk.Id = ulid.New()
 
 	// slice block down to size
 	size := b.config.Sizes[rand.Int31n(100)]

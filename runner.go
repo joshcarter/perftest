@@ -4,13 +4,12 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"io"
-
-	"github.com/spectralogic/go-core/log"
 )
 
 type Runner struct {
-	log.Logger
+	*zap.SugaredLogger
 	objectStore  ObjectStore
 	objectVendor *ObjectVendor
 	reporter     *Reporter
@@ -22,14 +21,14 @@ type Runner struct {
 
 func NewRunner(os ObjectStore, n int) (*Runner, error) {
 	r := &Runner{
-		Logger:       log.GetLogger(fmt.Sprintf("runner.%d", n)),
-		objectStore:  os,
-		objectVendor: global.ObjectVendor,
-		reporter:     global.Reporter,
-		syncer:       global.Syncer,
-		syncWhen:     global.SyncWhen,
-		iosize:       global.IoSize,
-		errchan:      global.RunnerError,
+		SugaredLogger: Logger().With(zap.Int("id", n)),
+		objectStore:   os,
+		objectVendor:  global.ObjectVendor,
+		reporter:      global.Reporter,
+		syncer:        global.Syncer,
+		syncWhen:      global.SyncWhen,
+		iosize:        global.IoSize,
+		errchan:       global.RunnerError,
 	}
 
 	r.Infof("creating runner")
@@ -67,7 +66,7 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 	wr, e := r.objectStore.GetWriter(fmt.Sprintf("%s.%s", blk.Id.String(), blk.Extension))
 
 	if e != nil {
-		return r.LogError(fmt.Errorf("cannot get block writer: %s", e))
+		return fmt.Errorf("cannot get block writer: %s", e)
 	}
 
 	defer func() {
@@ -106,7 +105,7 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 			r.Errorf("write: %s", e)
 			return
 		} else if bw < iosize {
-			e = r.LogError(fmt.Errorf("short write: expected %d, got %d", iosize, bw))
+			e = fmt.Errorf("short write: expected %d, got %d", iosize, bw)
 			return
 		}
 

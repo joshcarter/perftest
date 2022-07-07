@@ -10,6 +10,8 @@ FIX:
 
 IMPROVE:
 
+- Specify runId on command line.
+
 - Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
   while other writers are waiting for their fsync to finish.
 

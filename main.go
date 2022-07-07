@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
-	"github.com/spectralogic/go-core/log"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -37,14 +40,21 @@ var global = &Globals{
 }
 
 func init() {
-	global.RunId = time.Now().Format("2006-02-01-15-04-05")
+	global.RunId = time.Now().Format("2006-01-02-15-04-05")
 	global.RunnerInitFns = append(global.RunnerInitFns, startFileRunners)
 }
 
 func main() {
 	var err error
-	logger := log.GetLogger("main")
 
+	// TODO: set RunID from command line arg
+
+	if err = os.MkdirAll(global.RunId, 0750); err != nil {
+		fmt.Printf("cannot make output directory: %s\n", err)
+		os.Exit(-1)
+	}
+
+	logger := Logger()
 	viper.SetConfigName("config")
 	viper.AddConfigPath(".")
 	viper.SetDefault("iosize", "1MB")
@@ -141,7 +151,7 @@ stop:
 }
 
 func startFileRunners(rl *RunnerList) (err error) {
-	logger := log.GetLogger("main")
+	logger := Logger()
 	paths := viper.GetStringSlice("file.paths")
 
 	if len(paths) == 0 {
@@ -196,9 +206,8 @@ func startFileRunners(rl *RunnerList) (err error) {
 	}
 
 	openFlags := parseOpenFlags(viper.GetStringSlice("file.open_flags"))
-	totalRunners := 0
 
-	for _, path := range paths {
+	for i, path := range paths {
 		var o ObjectStore
 
 		if o, err = NewFileObjectStore(path, openFlags); err != nil {
@@ -207,17 +216,57 @@ func startFileRunners(rl *RunnerList) (err error) {
 
 		rl.AddStore(o)
 
-		for i := 0; i < runnersPerPath; i++ {
+		for j := 0; j < runnersPerPath; j++ {
 			var r *Runner
 
-			if r, err = NewRunner(o, totalRunners+1); err != nil {
+			if r, err = NewRunner(o, (i*runnersPerPath)+j+1); err != nil {
 				return fmt.Errorf("error initializing runner: %s", err)
 			}
 
 			rl.AddRunner(r)
-			totalRunners++
 		}
 	}
 
 	return nil
+}
+
+var __logger *zap.Logger
+var __logLevel zap.AtomicLevel
+var __loggerOnce sync.Once
+
+func Logger() *zap.SugaredLogger {
+	__loggerOnce.Do(func() {
+		var err error
+
+		__logLevel = zap.NewAtomicLevel()
+		__logLevel.SetLevel(zap.InfoLevel)
+
+		//config := zap.NewDevelopmentConfig()
+		//config.Level = __logLevel
+		//config.OutputPaths = []string{"stdout", filepath.Join(global.RunId, "log.txt")}
+		//
+		//__logger, err = config.Build()
+
+		cfg := zap.Config{
+			Encoding:    "console",
+			Level:       __logLevel,
+			OutputPaths: []string{"stdout", filepath.Join(global.RunId, "log.txt")},
+			EncoderConfig: zapcore.EncoderConfig{
+				MessageKey: "message",
+
+				LevelKey:    "level",
+				EncodeLevel: zapcore.CapitalLevelEncoder,
+
+				TimeKey:    "time",
+				EncodeTime: zapcore.TimeEncoderOfLayout("15:04:05"),
+			},
+		}
+		__logger, err = cfg.Build()
+
+		if err != nil {
+			panic(err)
+		}
+	})
+
+	return __logger.Sugar()
 }

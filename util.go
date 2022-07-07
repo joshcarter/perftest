@@ -47,3 +47,46 @@ func parseSizeInBytes(sizeStr string) (int64, error) {
 
 	return size * multiplier, nil
 }
+
+var EicSuffixes = []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB"}
+var DecimalSuffixes = []string{"B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB"}
+
+// Scales a size to kilobytes, megabytes, etc.. Will flip to the
+// next-larger size when 1,000 is passed, however the size will be
+// printed as a fraction of 1024, not 1000. Thus 1023 will be rendered
+// as "1.0 KiB" rather than "1023 B".
+func SprintSize(size int64) string {
+	sizef := float64(size)
+	i := 0
+
+	for sizef > 999 && i < len(EicSuffixes) {
+		sizef /= 1024
+		i++
+	}
+
+	if i == 0 {
+		// No fractional part needed
+		return fmt.Sprintf("%d B", int(size))
+	} else {
+		return fmt.Sprintf("%0.1f %s", sizef, EicSuffixes[i])
+	}
+}
+
+// Scales a size to kilobytes, megabytes, etc.. Uses base-1000 instead
+// of base-1024.
+func SprintDecimalSize(size int64) string {
+	sizef := float64(size)
+	i := 0
+
+	for sizef > 999 && i < len(EicSuffixes) {
+		sizef /= 1000
+		i++
+	}
+
+	if i == 0 {
+		// No fractional part needed
+		return fmt.Sprintf("%d B", int(size))
+	} else {
+		return fmt.Sprintf("%0.1f %s", sizef, DecimalSuffixes[i])
+	}
+}

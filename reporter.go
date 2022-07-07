@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"go.uber.org/zap"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -10,9 +11,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/spectralogic/go-core/fmt2"
-	"github.com/spectralogic/go-core/log"
 )
 
 type ReporterConfig struct {
@@ -30,7 +28,7 @@ type Sample struct {
 }
 
 type Reporter struct {
-	log.Logger
+	*zap.SugaredLogger
 	config     *ReporterConfig
 	dir        string // directory for log files
 	stop       func()
@@ -46,9 +44,9 @@ func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 	var wg sync.WaitGroup
 
 	r = &Reporter{
-		Logger: log.GetLogger("reporter"),
-		config: config,
-		dir:    global.RunId,
+		SugaredLogger: Logger(),
+		config:        config,
+		dir:           global.RunId,
 		stop: func() {
 			cancel()
 			wg.Wait()
@@ -60,11 +58,6 @@ func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 				return &Sample{}
 			},
 		},
-	}
-
-	if e = os.MkdirAll(r.dir, 0750); e != nil {
-		e = fmt.Errorf("cannot make log directory: %s", e)
-		return
 	}
 
 	if e = r.openFiles(); e != nil {
@@ -96,14 +89,14 @@ func (r *Reporter) openFiles() (e error) {
 		r.bwlog, e = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0664)
 
 		if e != nil {
-			e = r.LogError(fmt.Errorf("failed creating bandwidth log: %s", e))
+			e = fmt.Errorf("failed creating bandwidth log: %s", e)
 			return
 		}
 
 		_, e = fmt.Fprintf(r.bwlog, "# %s, %s\n", "Time(sec)", "Rate(bytes/sec)")
 
 		if e != nil {
-			e = r.LogError(fmt.Errorf("failed writing to bandwidth log: %s", e))
+			e = fmt.Errorf("failed writing to bandwidth log: %s", e)
 			return
 		}
 	}
@@ -113,14 +106,14 @@ func (r *Reporter) openFiles() (e error) {
 		r.latlog, e = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0664)
 
 		if e != nil {
-			e = r.LogError(fmt.Errorf("failed creating latency log: %s", e))
+			e = fmt.Errorf("failed creating latency log: %s", e)
 			return
 		}
 
 		_, e = fmt.Fprintf(r.latlog, "# %s, %s, %s\n", "Time(sec)", "Latency(sec)", "Size(bytes)")
 
 		if e != nil {
-			e = r.LogError(fmt.Errorf("failed writing to latency log: %s", e))
+			e = fmt.Errorf("failed writing to latency log: %s", e)
 			return
 		}
 	}
@@ -241,7 +234,7 @@ func (r *Reporter) Run(ctx context.Context) {
 				// Convert from accumulated bytes in the interval to the
 				// rate (bytes/sec) for that interval
 				rate := int64(float64(intervalBytes) / interval)
-				fmt.Printf("- %s/sec\n", fmt2.SprintSize(rate))
+				r.Infof("bandwidth: %s/sec", SprintSize(rate))
 
 				if r.bwlog != nil {
 					fmt.Fprintf(r.bwlog, "%.3f, %d\n", tick.Sub(startTime).Seconds(), rate)
@@ -267,16 +260,25 @@ func (r *Reporter) warmUp(ctx context.Context) error {
 	}
 
 	r.Infof("not enabled yet, in pre-start (%.0f seconds)", warmUp.Seconds())
-	t := time.NewTimer(warmUp)
+	done := time.NewTimer(warmUp)
+	report := time.NewTicker(time.Second * 5)
+
+	defer func() {
+		done.Stop()
+		report.Stop()
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
-			t.Stop()
 			return fmt.Errorf("cancelled")
 
-		case <-t.C:
+		case <-done.C:
 			r.Infof("warm-up finished")
+			return nil
+
+		case <-report.C:
+			r.Infof("waiting for warm-up to finish...")
 			return nil
 
 		case sample := <-r.samples:

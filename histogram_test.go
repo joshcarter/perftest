@@ -2,11 +2,37 @@ package main
 
 import (
 	"fmt"
+	"runtime/debug"
 	"testing"
 	"time"
-
-	th "github.com/spectralogic/go-core/test_helpers"
 )
+
+// AbortOnError Aborts if err is not nil
+func AbortOnError(t *testing.T, err error) {
+	t.Helper()
+	AbortOnErrorf(t, err, "")
+}
+
+// AbortOnErrorf causes the testing framework to abort if the given error is not nil.
+func AbortOnErrorf(t *testing.T, e error, msg string, args ...interface{}) {
+	t.Helper()
+	if e != nil {
+		if testing.Verbose() {
+			debug.PrintStack()
+		}
+		t.Fatalf("%s%v", argsMsg(msg, args...), e)
+	}
+}
+
+func argsMsg(msg string, args ...interface{}) string {
+	if len(args) < 1 {
+		if msg == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s: ", msg)
+	}
+	return fmt.Sprintf("%s: ", fmt.Sprintf(msg, args...))
+}
 
 func TestHistogram_Add(t *testing.T) {
 	h := NewHistogram()
@@ -17,7 +43,7 @@ func TestHistogram_Add(t *testing.T) {
 		"1.5ms",
 		"55ms"} {
 		d, e := time.ParseDuration(sample)
-		th.AbortOnError(t, e)
+		AbortOnError(t, e)
 		h.Add(d)
 	}
 
@@ -29,7 +55,7 @@ func TestHistogram_Add(t *testing.T) {
 func TestHistogram_Timing(t *testing.T) {
 	h := NewHistogram()
 	d, e := time.ParseDuration("15ms")
-	th.AbortOnError(t, e)
+	AbortOnError(t, e)
 
 	for i := 0; i < 100; i++ {
 		start := time.Now()

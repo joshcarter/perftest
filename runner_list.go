@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"github.com/spectralogic/go-core/log"
+	"go.uber.org/zap"
 	"sync"
 )
 
 type RunnerList struct {
-	log.Logger
+	*zap.SugaredLogger
 	runners []*Runner
 	stores  []ObjectStore
 	stop    func()
@@ -15,9 +15,9 @@ type RunnerList struct {
 
 func NewRunnerList() *RunnerList {
 	return &RunnerList{
-		Logger:  log.GetLogger("runnerlist"),
-		runners: make([]*Runner, 0),
-		stores:  make([]ObjectStore, 0),
+		SugaredLogger: Logger(),
+		runners:       make([]*Runner, 0),
+		stores:        make([]ObjectStore, 0),
 	}
 }
 

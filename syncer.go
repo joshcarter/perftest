@@ -2,8 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"github.com/spectralogic/go-core/log"
+	"go.uber.org/zap"
 	"sync"
 	"time"
 )
@@ -32,13 +31,13 @@ func (s *SyncNone) Stop() {
 }
 
 type SyncInline struct {
-	log.Logger
+	*zap.SugaredLogger
 	timings *Histogram
 }
 
 func NewSyncInline() *SyncInline {
 	return &SyncInline{
-		log.GetLogger("sync-inline"),
+		Logger(),
 		NewHistogram(),
 	}
 }
@@ -53,9 +52,9 @@ func (s *SyncInline) Sync(bw ObjectWriter) (e error) {
 }
 
 func (s *SyncInline) Report() {
-	fmt.Println("inline sync times")
-	fmt.Println(s.timings.Headers())
-	fmt.Println(s.timings.String())
+	s.Infof("inline sync times")
+	s.Infof(s.timings.Headers())
+	s.Infof(s.timings.String())
 	s.timings.Reset()
 }
 
@@ -69,7 +68,7 @@ type SyncRequest struct {
 }
 
 type SyncBatcher struct {
-	log.Logger
+	*zap.SugaredLogger
 	incoming   chan *SyncRequest
 	pending    chan *SyncRequest
 	maxWait    time.Duration
@@ -85,14 +84,14 @@ func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncB
 	var wg sync.WaitGroup
 
 	s := &SyncBatcher{
-		Logger:     log.GetLogger("sync-batcher"),
-		incoming:   make(chan *SyncRequest, 100),
-		pending:    make(chan *SyncRequest, 100),
-		maxWait:    maxWait,
-		maxPending: maxPending,
-		parallel:   parallel,
-		syncTime:   NewHistogram(),
-		totalTime:  NewHistogram(),
+		SugaredLogger: Logger(),
+		incoming:      make(chan *SyncRequest, 100),
+		pending:       make(chan *SyncRequest, 100),
+		maxWait:       maxWait,
+		maxPending:    maxPending,
+		parallel:      parallel,
+		syncTime:      NewHistogram(),
+		totalTime:     NewHistogram(),
 		stop: func() {
 			cancel()
 			wg.Wait()
@@ -222,10 +221,10 @@ func (s *SyncBatcher) syncPendingParallel(pending int) {
 }
 
 func (s *SyncBatcher) Report() {
-	fmt.Println("batch sync times (sync only, then wait+sync)")
-	fmt.Println(s.syncTime.Headers())
-	fmt.Println(s.syncTime.String())
-	fmt.Println(s.totalTime.String())
+	s.Infof("batch sync times (sync only, then wait+sync)")
+	s.Infof(s.syncTime.Headers())
+	s.Infof(s.syncTime.String())
+	s.Infof(s.totalTime.String())
 	s.syncTime.Reset()
 	s.totalTime.Reset()
 }
