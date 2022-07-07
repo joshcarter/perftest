@@ -4,10 +4,6 @@ I/O performance test (currently just file writes) in Go. Run `./perftest` from a
 
 ## TODO ##
 
-FIX:
-
-- All runners have the same log name?
-
 IMPROVE:
 
 - Specify runId on command line.
@@ -15,7 +11,7 @@ IMPROVE:
 - Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
   while other writers are waiting for their fsync to finish.
 
-- Summary printed on exit, with warm-up time and stop measurement before shutdown.
+- Summary printed on exit
 
 - Time-based run, and/or exit after steady state reached for a certain time.
 

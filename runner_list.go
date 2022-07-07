@@ -39,10 +39,10 @@ func (rl *RunnerList) Start() {
 
 	for _, runner := range rl.runners {
 		wg.Add(1)
-		go func() {
-			runner.Run(ctx)
+		go func(r *Runner) {
+			r.Run(ctx)
 			wg.Done()
-		}()
+		}(runner)
 	}
 
 	rl.Infof("all runners started")
