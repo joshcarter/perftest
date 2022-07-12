@@ -8,7 +8,8 @@
     "sync_batcher": {
         "max_wait": "250ms",
         "max_pending": 5,
-        "parallel": false
+        "parallel": false,
+        "locked": false
     },
     "size": "4MB/25/mov:8MB/25/mp4:8KB/50/xml",
     "iosize": "1MB",

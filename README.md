@@ -68,7 +68,8 @@ If `file.sync` is set to `batch`, an additional section is required:
         "sync_batcher": {
             "max_wait": "1s",
             "max_pending": 10,
-            "parallel": false
+            "parallel": false,
+            "locked": false
         }
     }
 
@@ -76,7 +77,8 @@ The `SyncBatcher` will gather syncs and issue them all together, when either the
 its `max_wait` duration, or when the pending number of syncs is equal to `max_pending`, whichever happens first. Once
 the syncs are complete the blocked runners will be allowed to close their current file and continue. The individual
 syncs may be issued sequentially on the batcher's goroutine (the default) or in separate, parallel goroutines if
-`sync_bactcher.parallel` is set to true.
+`sync_bactcher.parallel` is set to true. If you want the batcher to hold off all other writes during sync, set
+`sync_batcher.locked` to true.
 
 The `file.open_flags` setting may be used to add flags to the file open. This may include `O_DIRECT` or `O_SYNC`. These
 should be provided as a list, for example:

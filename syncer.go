@@ -16,6 +16,18 @@ type Syncer interface {
 
 	// Stop any background goroutines.
 	Stop()
+
+	Locker() sync.Locker
+}
+
+type NilLocker struct{}
+
+func (l *NilLocker) Lock() {
+	return
+}
+
+func (l *NilLocker) Unlock() {
+	return
 }
 
 type SyncNone struct{}
@@ -28,6 +40,10 @@ func (s *SyncNone) Report() {
 }
 
 func (s *SyncNone) Stop() {
+}
+
+func (s *SyncNone) Locker() sync.Locker {
+	return &NilLocker{}
 }
 
 type SyncInline struct {
@@ -61,6 +77,10 @@ func (s *SyncInline) Report() {
 func (s *SyncInline) Stop() {
 }
 
+func (s *SyncInline) Locker() sync.Locker {
+	return &NilLocker{}
+}
+
 type SyncRequest struct {
 	bw        ObjectWriter
 	submitted time.Time
@@ -73,13 +93,14 @@ type SyncBatcher struct {
 	pending    chan *SyncRequest
 	maxWait    time.Duration
 	maxPending int
-	parallel   bool       // do syncs in many goroutines, or just one
+	parallel   bool // do syncs in many goroutines, or just one
+	rwlock     *sync.RWMutex
 	syncTime   *Histogram // time waiting for sync only to complete
 	totalTime  *Histogram // total time waiting (batch delay + sync)
 	stop       func()
 }
 
-func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncBatcher {
+func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool, locked bool) *SyncBatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 
@@ -96,6 +117,11 @@ func NewSyncBatcher(maxWait time.Duration, maxPending int, parallel bool) *SyncB
 			cancel()
 			wg.Wait()
 		},
+	}
+
+	if locked {
+		s.rwlock = &sync.RWMutex{}
+		s.Infof("locking IO during batch sync")
 	}
 
 	wg.Add(1)
@@ -122,6 +148,16 @@ func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
 func (s *SyncBatcher) Stop() {
 	s.stop()
 	s.Infof("stopped")
+}
+
+func (s *SyncBatcher) Locker() sync.Locker {
+	if s.rwlock != nil {
+		// s.Infof("locker: returning rlocker")
+		return s.rwlock.RLocker()
+	} else {
+		// s.Infof("locker: returning nil locker")
+		return &NilLocker{}
+	}
 }
 
 func (s *SyncBatcher) Run(ctx context.Context) {
@@ -177,6 +213,11 @@ func (s *SyncBatcher) SyncPending() {
 	}
 
 	// s.Infof("sync'ing %d pending writers", pending)
+
+	if s.rwlock != nil {
+		s.rwlock.Lock()
+		defer s.rwlock.Unlock()
+	}
 
 	if s.parallel {
 		s.syncPendingParallel(pending)

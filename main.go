@@ -188,7 +188,9 @@ func startFileRunners(rl *RunnerList) (err error) {
 
 		syncBatcherParallel := viper.GetBool("sync_batcher.parallel")
 
-		global.Syncer = NewSyncBatcher(syncBatcherMaxWait, syncBatcherMaxPending, syncBatcherParallel)
+		syncBatcherLocked := viper.GetBool("sync_batcher.locked")
+
+		global.Syncer = NewSyncBatcher(syncBatcherMaxWait, syncBatcherMaxPending, syncBatcherParallel, syncBatcherLocked)
 		willSync = true
 	default:
 		global.Syncer = &SyncNone{}
