@@ -106,3 +106,18 @@ func Median(data []int64) int64 {
 		return data[l/2]
 	}
 }
+
+func Mean(data []int64) int64 {
+	l := len(data)
+	if l == 0 {
+		return 0
+	}
+
+	var sum int64
+
+	for _, d := range data {
+		sum += d
+	}
+
+	return sum / int64(l)
+}

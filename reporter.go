@@ -182,6 +182,7 @@ func (r *Reporter) Stop() {
 	r.stop()
 	r.Infof("stopped")
 	r.Infof("median bandwidth: %s/sec", SprintSize(Median(r.bwtotal)))
+	r.Infof("mean bandwidth: %s/sec", SprintSize(Mean(r.bwtotal)))
 }
 
 func (r *Reporter) GetSample() *Sample {
