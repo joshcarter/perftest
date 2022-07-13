@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"io"
-	"sync"
 )
 
 type Runner struct {
@@ -17,7 +16,6 @@ type Runner struct {
 	syncer       Syncer
 	syncWhen     SyncWhen
 	iosize       int64
-	lock         sync.Locker
 	errchan      chan error
 }
 
@@ -30,7 +28,6 @@ func NewRunner(os ObjectStore, n int) (*Runner, error) {
 		syncer:        global.Syncer,
 		syncWhen:      global.SyncWhen,
 		iosize:        global.IoSize,
-		lock:          global.Syncer.Locker(),
 		errchan:       global.RunnerError,
 	}
 
@@ -95,11 +92,9 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 
 		// r.Infof("writing '%s': %d bytes, %d remaining", blk.Id, iosize, remaining)
 
-		r.lock.Lock()
 		sample := r.reporter.GetSample()
 		bw, e = io.CopyN(wr, rd, iosize)
 		r.reporter.CaptureSample(sample, bw)
-		r.lock.Unlock()
 
 		remaining -= int(bw)
 

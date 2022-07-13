@@ -186,11 +186,7 @@ func startFileRunners(rl *RunnerList) (err error) {
 			return fmt.Errorf("no max_pending specified; create 'sync_batcher.max_pending' in config.json")
 		}
 
-		syncBatcherParallel := viper.GetBool("sync_batcher.parallel")
-
-		syncBatcherLocked := viper.GetBool("sync_batcher.locked")
-
-		global.Syncer = NewSyncBatcher(syncBatcherMaxWait, syncBatcherMaxPending, syncBatcherParallel, syncBatcherLocked)
+		global.Syncer = NewSyncBatcher(syncBatcherMaxWait, syncBatcherMaxPending)
 		willSync = true
 	default:
 		global.Syncer = &SyncNone{}
