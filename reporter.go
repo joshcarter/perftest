@@ -35,6 +35,7 @@ type Reporter struct {
 	preStop    bool // stop logging if true
 	samples    chan *Sample
 	samplePool sync.Pool
+	bwtotal    []int64
 	bwlog      *os.File
 	latlog     *os.File
 }
@@ -58,6 +59,7 @@ func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 				return &Sample{}
 			},
 		},
+		bwtotal: make([]int64, 0, 1000),
 	}
 
 	if e = r.openFiles(); e != nil {
@@ -179,6 +181,7 @@ func (r *Reporter) PreStop() {
 func (r *Reporter) Stop() {
 	r.stop()
 	r.Infof("stopped")
+	r.Infof("median bandwidth: %s/sec", SprintSize(Median(r.bwtotal)))
 }
 
 func (r *Reporter) GetSample() *Sample {
@@ -235,6 +238,8 @@ func (r *Reporter) Run(ctx context.Context) {
 				// rate (bytes/sec) for that interval
 				rate := int64(float64(intervalBytes) / interval)
 				r.Infof("bandwidth: %s/sec", SprintSize(rate))
+
+				r.bwtotal = append(r.bwtotal, rate)
 
 				if r.bwlog != nil {
 					fmt.Fprintf(r.bwlog, "%.3f, %d\n", tick.Sub(startTime).Seconds(), rate)

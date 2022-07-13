@@ -11,8 +11,6 @@ IMPROVE:
 - Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
   while other writers are waiting for their fsync to finish.
 
-- Summary printed on exit
-
 - Time-based run, and/or exit after steady state reached for a certain time.
 
 ## Structure ##

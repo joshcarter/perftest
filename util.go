@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -88,5 +89,20 @@ func SprintDecimalSize(size int64) string {
 		return fmt.Sprintf("%d B", int(size))
 	} else {
 		return fmt.Sprintf("%0.1f %s", sizef, DecimalSuffixes[i])
+	}
+}
+
+func Median(data []int64) int64 {
+	l := len(data)
+	if l == 0 {
+		return 0
+	}
+
+	sort.Slice(data, func(i, j int) bool { return data[i] < data[j] })
+
+	if l%2 == 0 {
+		return (data[l/2-1] + data[l/2]) / 2
+	} else {
+		return data[l/2]
 	}
 }
