@@ -285,7 +285,6 @@ func (r *Reporter) warmUp(ctx context.Context) error {
 
 		case <-report.C:
 			r.Infof("waiting for warm-up to finish...")
-			return nil
 
 		case sample := <-r.samples:
 			r.samplePool.Put(sample) // discard any samples during warmup
