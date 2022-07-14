@@ -36,6 +36,7 @@ type Reporter struct {
 	samples    chan *Sample
 	samplePool sync.Pool
 	bwtotal    []int64
+	totalBytes int64
 	bwlog      *os.File
 	latlog     *os.File
 }
@@ -183,6 +184,7 @@ func (r *Reporter) Stop() {
 	r.Infof("stopped")
 	r.Infof("median bandwidth: %s/sec", SprintSize(Median(r.bwtotal)))
 	r.Infof("mean bandwidth: %s/sec", SprintSize(Mean(r.bwtotal)))
+	r.Infof("total written: %s", SprintSize(r.totalBytes))
 }
 
 func (r *Reporter) GetSample() *Sample {
@@ -221,6 +223,7 @@ func (r *Reporter) Run(ctx context.Context) {
 
 		case sample := <-r.samples:
 			intervalBytes += sample.Size
+			r.totalBytes += sample.Size
 
 			if r.latlog != nil && !r.preStop {
 				fmt.Fprintf(r.latlog, "%.3f, %.6f, %d\n",
@@ -238,6 +241,9 @@ func (r *Reporter) Run(ctx context.Context) {
 				// Convert from accumulated bytes in the interval to the
 				// rate (bytes/sec) for that interval
 				rate := int64(float64(intervalBytes) / interval)
+				fmt.Printf("intervalBytes: %d\n", intervalBytes)
+				fmt.Printf("interval: %f\n", interval)
+				fmt.Printf("rate: %d\n", rate)
 				r.Infof("bandwidth: %s/sec", SprintSize(rate))
 
 				r.bwtotal = append(r.bwtotal, rate)

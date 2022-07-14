@@ -70,6 +70,7 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 
 func (b *ObjectVendor) GetObject() *Object {
 	blk := b.objectPool.Get().(*Object)
+	blk.Id = ulid.Make() // Need to assign new one every time to prevent recycling
 
 	// slice block down to size
 	size := b.config.Sizes[rand.Int31n(100)]

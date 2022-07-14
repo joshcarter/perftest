@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"math"
 	"runtime/debug"
 	"testing"
 )
@@ -21,6 +23,10 @@ func TestMean(t *testing.T) {
 	ExpectEqual(t, int64(0), Mean([]int64{-100, 100}))
 	ExpectEqual(t, int64(15), Mean([]int64{10, 20}))
 	ExpectEqual(t, int64(15), Mean([]int64{0, 10, 20, 30}))
+}
+
+func TestSprintSize(t *testing.T) {
+	fmt.Printf("max int64: %s\n", SprintSize(math.MaxInt64))
 }
 
 func ExpectEqual(t *testing.T, expected, actual interface{}) {

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"go.uber.org/zap"
@@ -77,26 +76,27 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 		}
 	}()
 
-	rd := bytes.NewReader(blk.Data)
+	offset := 0
 	remaining := len(blk.Data)
 
 	// r.Infof("starting block '%s': %d bytes", blk.Id, remaining)
 
 	for remaining > 0 && len(ctx.Done()) == 0 {
-		var bw int64
-		iosize := r.iosize
+		var bw int
+		iosize := int(r.iosize)
 
-		if iosize > int64(remaining) {
-			iosize = int64(remaining)
+		if iosize > remaining {
+			iosize = remaining
 		}
 
 		// r.Infof("writing '%s': %d bytes, %d remaining", blk.Id, iosize, remaining)
 
 		sample := r.reporter.GetSample()
-		bw, e = io.CopyN(wr, rd, iosize)
-		r.reporter.CaptureSample(sample, bw)
+		bw, e = wr.Write(blk.Data[offset : offset+iosize])
+		r.reporter.CaptureSample(sample, int64(bw))
 
-		remaining -= int(bw)
+		remaining -= bw
+		offset += iosize
 
 		if e == io.EOF || remaining == 0 {
 			e = nil
