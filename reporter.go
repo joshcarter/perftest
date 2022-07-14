@@ -241,9 +241,6 @@ func (r *Reporter) Run(ctx context.Context) {
 				// Convert from accumulated bytes in the interval to the
 				// rate (bytes/sec) for that interval
 				rate := int64(float64(intervalBytes) / interval)
-				fmt.Printf("intervalBytes: %d\n", intervalBytes)
-				fmt.Printf("interval: %f\n", interval)
-				fmt.Printf("rate: %d\n", rate)
 				r.Infof("bandwidth: %s/sec", SprintSize(rate))
 
 				r.bwtotal = append(r.bwtotal, rate)
