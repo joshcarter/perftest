@@ -6,9 +6,7 @@ import (
 	"go.uber.org/zap"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 )
@@ -159,10 +157,8 @@ func (r *Reporter) captureRunState() (e error) {
 	for file, command := range r.config.Capture {
 		var out []byte
 
-		c := strings.Split(command, " ")
-		out, e = exec.Command(c[0], c[1:]...).Output()
-		if e != nil {
-			return fmt.Errorf("running '%s': %s", command, e)
+		if out, e = RunCmd(command); e != nil {
+			return e
 		}
 
 		e = ioutil.WriteFile(filepath.Join(r.dir, file), out, 0664)

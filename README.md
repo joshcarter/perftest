@@ -44,9 +44,15 @@ following will create 10 parallel streams writing to `/tmp/perftest`:
     {
         "file": {
             "paths": ["/tmp/perftest"],
-            "runners_per_path": 10
+            "runners_per_path": 10,
+            "setup": "mkdir -p /tmp/perftest",
+            "teardown": "rm -r /tmp/perftest"
         }
     }
+
+The `file.setup` and `file.teardown` strings are commands that will be run before and after the test, respectively.
+They may be left out if not needed. A common use is to create and clean up the run directory or setup/teardown a file
+system.
 
 Two settings in the `file` section control sync behavior. First, `sync_on` will control where the sync takes place:
 

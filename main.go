@@ -111,7 +111,7 @@ func main() {
 		os.Exit(-1)
 	}
 
-	runners := NewRunnerList()
+	runners := NewRunnerList(viper.GetString("file.setup"), viper.GetString("file.teardown"))
 
 	for _, fn := range global.RunnerInitFns {
 		err = fn(runners)
@@ -122,7 +122,10 @@ func main() {
 		}
 	}
 
-	runners.Start()
+	if err = runners.Start(); err != nil {
+		logger.Errorf(err.Error())
+		os.Exit(-1)
+	}
 
 	logger.Infof("running... press Control-C to stop.")
 	sig := make(chan os.Signal, 1)

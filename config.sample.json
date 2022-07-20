@@ -3,7 +3,9 @@
         "paths": ["/tmp/runner1", "/tmp/runner2"],
         "runners_per_path": 5,
         "sync": "batch",
-        "sync_on": "close"
+        "sync_on": "close",
+        "setup": "mkdir -p /tmp/runner1 /tmp/runner2",
+        "teardown": "rm -r /tmp/runner1 /tmp/runner2"
     },
     "sync_batcher": {
         "max_wait": "250ms",

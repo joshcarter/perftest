@@ -8,16 +8,20 @@ import (
 
 type RunnerList struct {
 	*zap.SugaredLogger
-	runners []*Runner
-	stores  []ObjectStore
-	stop    func()
+	runners     []*Runner
+	stores      []ObjectStore
+	setupCmd    string
+	teardownCmd string
+	stop        func()
 }
 
-func NewRunnerList() *RunnerList {
+func NewRunnerList(setupCmd, teardownCmd string) *RunnerList {
 	return &RunnerList{
 		SugaredLogger: Logger(),
 		runners:       make([]*Runner, 0),
 		stores:        make([]ObjectStore, 0),
+		setupCmd:      setupCmd,
+		teardownCmd:   teardownCmd,
 	}
 }
 
@@ -29,7 +33,15 @@ func (rl *RunnerList) AddStore(s ObjectStore) {
 	rl.stores = append(rl.stores, s)
 }
 
-func (rl *RunnerList) Start() {
+func (rl *RunnerList) Start() error {
+	if len(rl.setupCmd) > 0 {
+		rl.Infof("running: %s", rl.setupCmd)
+		if out, e := RunCmd(rl.setupCmd); e != nil {
+			rl.Errorf("setup: %s", out)
+			return e
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
 	rl.stop = func() {
@@ -46,6 +58,7 @@ func (rl *RunnerList) Start() {
 	}
 
 	rl.Infof("all runners started")
+	return nil
 }
 
 func (rl *RunnerList) Stop() {
@@ -55,12 +68,11 @@ func (rl *RunnerList) Stop() {
 		rl.Infof("stopped")
 	}
 
-	rl.Infof("cleaning up")
+	if len(rl.teardownCmd) > 0 {
+		rl.Infof("running: %s", rl.teardownCmd)
 
-	for _, store := range rl.stores {
-		err := store.Cleanup()
-		if err != nil {
-			rl.Errorf("cleanup: %s", err)
+		if out, e := RunCmd(rl.teardownCmd); e != nil {
+			rl.Errorf("teardown: %s", out)
 		}
 	}
 }

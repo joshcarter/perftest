@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -120,4 +121,14 @@ func Mean(data []int64) int64 {
 	}
 
 	return sum / int64(l)
+}
+
+func RunCmd(command string) (out []byte, e error) {
+	c := strings.Split(command, " ")
+	out, e = exec.Command(c[0], c[1:]...).Output()
+	if e != nil {
+		return nil, fmt.Errorf("running '%s': %s", command, e)
+	}
+
+	return
 }
