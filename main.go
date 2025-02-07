@@ -218,9 +218,9 @@ func startFileRunners(rl *RunnerList) (err error) {
 		rl.AddStore(o)
 
 		for j := 0; j < runnersPerPath; j++ {
-			var r *Runner
+			var r Runner
 
-			if r, err = NewRunner(o, (i*runnersPerPath)+j+1); err != nil {
+			if r, err = NewRunnerIoUring(o, (i*runnersPerPath)+j+1); err != nil {
 				return fmt.Errorf("error initializing runner: %s", err)
 			}
 

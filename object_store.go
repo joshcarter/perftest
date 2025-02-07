@@ -14,6 +14,7 @@ type ObjectWriter interface {
 
 type ObjectStore interface {
 	GetWriter(name string) (ObjectWriter, error)
+	GetFileFixMe(name string) (*os.File, error)
 }
 
 type FileObjectStore struct {
@@ -36,4 +37,8 @@ func NewFileObjectStore(root string, openFlags int) (bs ObjectStore, e error) {
 func (f *FileObjectStore) GetWriter(name string) (bw ObjectWriter, e error) {
 	bw, e = os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
 	return
+}
+
+func (f *FileObjectStore) GetFileFixMe(name string) (file *os.File, e error) {
+	return os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
 }
