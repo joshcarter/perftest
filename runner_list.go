@@ -8,7 +8,7 @@ import (
 
 type RunnerList struct {
 	*zap.SugaredLogger
-	runners     []Runner
+	runners     []*Runner
 	stores      []ObjectStore
 	setupCmd    string
 	teardownCmd string
@@ -18,14 +18,14 @@ type RunnerList struct {
 func NewRunnerList(setupCmd, teardownCmd string) *RunnerList {
 	return &RunnerList{
 		SugaredLogger: Logger(),
-		runners:       make([]Runner, 0),
+		runners:       make([]*Runner, 0),
 		stores:        make([]ObjectStore, 0),
 		setupCmd:      setupCmd,
 		teardownCmd:   teardownCmd,
 	}
 }
 
-func (rl *RunnerList) AddRunner(r Runner) {
+func (rl *RunnerList) AddRunner(r *Runner) {
 	rl.runners = append(rl.runners, r)
 }
 
@@ -51,7 +51,7 @@ func (rl *RunnerList) Start() error {
 
 	for _, runner := range rl.runners {
 		wg.Add(1)
-		go func(r Runner) {
+		go func(r *Runner) {
 			r.Run(ctx)
 			wg.Done()
 		}(runner)
