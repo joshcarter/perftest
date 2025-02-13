@@ -149,6 +149,14 @@ stop:
 	runners.Stop()
 	global.Syncer.Stop()
 	global.Reporter.Stop()
+
+	for _, store := range runners.stores {
+		e := store.Close()
+		if e != nil {
+			logger.Errorf("error closing store: %s", e)
+		}
+	}
+
 	logger.Infof("finished run %s", global.RunId)
 	os.Exit(0)
 }
@@ -218,9 +226,9 @@ func startFileRunners(rl *RunnerList) (err error) {
 		rl.AddStore(o)
 
 		for j := 0; j < runnersPerPath; j++ {
-			var r Runner
+			var r *Runner
 
-			if r, err = NewRunnerIoUring(o, (i*runnersPerPath)+j+1); err != nil {
+			if r, err = NewRunner(o, (i*runnersPerPath)+j+1); err != nil {
 				return fmt.Errorf("error initializing runner: %s", err)
 			}
 

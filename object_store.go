@@ -2,24 +2,21 @@ package main
 
 import (
 	"fmt"
+	"github.com/iceber/iouring-go"
 	"os"
 	"path/filepath"
 )
 
-type ObjectWriter interface {
-	Write(p []byte) (n int, err error)
-	Close() error
-	Sync() error
-}
-
 type ObjectStore interface {
-	GetWriter(name string) (ObjectWriter, error)
-	GetFileFixMe(name string) (*os.File, error)
+	GetFile(name string) (*os.File, error)
+	Close() error
+	Ring() *iouring.IOURing
 }
 
 type FileObjectStore struct {
 	root      string
 	openFlags int
+	ring      *iouring.IOURing
 }
 
 func NewFileObjectStore(root string, openFlags int) (bs ObjectStore, e error) {
@@ -30,15 +27,24 @@ func NewFileObjectStore(root string, openFlags int) (bs ObjectStore, e error) {
 		return
 	}
 
-	bs = &FileObjectStore{path, openFlags}
+	ring, e := iouring.New(uint(256))
+	if e != nil {
+		e = fmt.Errorf("cannot initialize io_uring: %w", e)
+		return
+	}
+
+	bs = &FileObjectStore{path, openFlags, ring}
 	return
 }
 
-func (f *FileObjectStore) GetWriter(name string) (bw ObjectWriter, e error) {
-	bw, e = os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
-	return
-}
-
-func (f *FileObjectStore) GetFileFixMe(name string) (file *os.File, e error) {
+func (f *FileObjectStore) GetFile(name string) (file *os.File, e error) {
 	return os.OpenFile(filepath.Join(f.root, name), os.O_WRONLY|os.O_CREATE|f.openFlags, 0775)
+}
+
+func (f *FileObjectStore) Close() error {
+	return f.ring.Close()
+}
+
+func (f *FileObjectStore) Ring() *iouring.IOURing {
+	return f.ring
 }

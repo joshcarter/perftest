@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"github.com/iceber/iouring-go"
 	"go.uber.org/zap"
+	"os"
 	"sync"
 	"time"
 )
 
 type Syncer interface {
 	// Issue sync on ObjectWriter based on policy.
-	Sync(bw ObjectWriter) error
+	Sync(s ObjectStore, f *os.File) error
 
 	// Log a report on sync syncTime and reset them.
 	Report()
@@ -20,7 +22,7 @@ type Syncer interface {
 
 type SyncNone struct{}
 
-func (s *SyncNone) Sync(_ ObjectWriter) error {
+func (s *SyncNone) Sync(_ ObjectStore, _ *os.File) error {
 	return nil
 }
 
@@ -42,13 +44,21 @@ func NewSyncInline() *SyncInline {
 	}
 }
 
-func (s *SyncInline) Sync(bw ObjectWriter) (e error) {
+func (s *SyncInline) Sync(store ObjectStore, f *os.File) (e error) {
 	start := time.Now()
-	e = bw.Sync()
+
+	preq := iouring.Fsync(int(f.Fd()))
+	ch := make(chan iouring.Result, 1)
+	if _, e = store.Ring().SubmitRequest(preq, ch); e != nil {
+		return
+	}
+	res := <-ch
+
 	elapsed := time.Now().Sub(start)
 	s.timings.Add(elapsed)
 
-	return e
+	e = res.Err()
+	return
 }
 
 func (s *SyncInline) Report() {
@@ -62,7 +72,8 @@ func (s *SyncInline) Stop() {
 }
 
 type SyncRequest struct {
-	bw        ObjectWriter
+	file      *os.File
+	store     ObjectStore
 	submitted time.Time
 	e         chan error
 }
@@ -105,11 +116,11 @@ func NewSyncBatcher(maxWait time.Duration, maxPending int) *SyncBatcher {
 	return s
 }
 
-func (s *SyncBatcher) Sync(bw ObjectWriter) (e error) {
+func (s *SyncBatcher) Sync(store ObjectStore, f *os.File) (e error) {
 	start := time.Now()
 
 	// Create sync request and wait for it to be processed.
-	req := &SyncRequest{bw, time.Now(), make(chan error, 1)}
+	req := &SyncRequest{f, store, time.Now(), make(chan error, 1)}
 	s.incoming <- req
 	e = <-req.e
 
@@ -176,16 +187,33 @@ func (s *SyncBatcher) SyncPending() {
 
 	// s.Infof("sync'ing %d pending writers", pending)
 
+	reqs := make([]*SyncRequest, pending)
+
 	for i := 0; i < pending; i++ {
-		req := <-s.pending
+		reqs[i] = <-s.pending
+	}
 
-		// fmt.Printf("req %d of %d waited %d ms\n", i+1, pending, time.Now().Sub(req.submitted).Milliseconds())
+	// for the moment I'm being lazy and don't want to support multiple stores
+	ring := reqs[0].store.Ring()
+	results := make(chan iouring.Result, pending)
+	start := time.Now()
 
-		start := time.Now()
-		e := req.bw.Sync()
+	// Submit all the syncs
+	for _, req := range reqs {
+		preq := iouring.Fsync(int(req.file.Fd())).WithInfo(req)
+		_, e := ring.SubmitRequest(preq, results)
+
+		if e != nil {
+			s.Errorf("sync error: %v", e)
+		}
+	}
+
+	// Consume all the results
+	for i := 0; i < pending; i++ {
+		res := <-results
+		req := res.GetRequestInfo().(*SyncRequest)
+		req.e <- res.Err()
 		s.syncTime.Add(time.Now().Sub(start))
-
-		req.e <- e
 	}
 }
 
