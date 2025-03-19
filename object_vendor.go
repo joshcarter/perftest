@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,7 +30,6 @@ type ObjectVendorConfig struct {
 type ObjectVendor struct {
 	*zap.SugaredLogger
 	config  *ObjectVendorConfig
-	seq     *ByteSequence
 	pool    sync.Pool
 	objects chan *Object
 	stop    func()
@@ -59,7 +59,6 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 	b := &ObjectVendor{
 		SugaredLogger: Logger(),
 		config:        config,
-		seq:           NewByteSequence(int64(0)),
 		pool: sync.Pool{
 			New: func() interface{} {
 				return &Object{
@@ -78,7 +77,8 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 	b.Infof("object size spec: %s", sizespec)
 	b.Infof("compressibility: %d", compressibility)
 
-	for i := 0; i < 4; i++ {
+	vendors := max(1, runtime.NumCPU()/4)
+	for i := 0; i < vendors; i++ {
 		wg.Add(1)
 		go b.run(ctx, i)
 	}
@@ -100,6 +100,8 @@ func (b *ObjectVendor) ReturnObject(blk *Object) {
 
 func (b *ObjectVendor) run(ctx context.Context, n int) {
 	b.Infof("starting object vendor %d", n+1)
+	seq := NewByteSequence(int64(0))
+	seq.Seed(uint64(n))
 
 	for {
 		select {
@@ -108,13 +110,13 @@ func (b *ObjectVendor) run(ctx context.Context, n int) {
 
 		default:
 			if len(b.objects) < maxObjects {
-				b.objects <- b.makeObject()
+				b.objects <- b.makeObject(seq)
 			}
 		}
 	}
 }
 
-func (b *ObjectVendor) makeObject() *Object {
+func (b *ObjectVendor) makeObject(seq *ByteSequence) *Object {
 	blk := b.pool.Get().(*Object)
 	blk.Id = ulid.Make() // Need to assign new one every time to prevent recycling
 
@@ -123,7 +125,7 @@ func (b *ObjectVendor) makeObject() *Object {
 	blk.Data = blk.dataBuf[:size]
 	blk.Extension = b.config.Extensions[size]
 
-	b.seq.PatternFill(blk.Data, b.config.Compressibility)
+	seq.PatternFill(blk.Data, b.config.Compressibility)
 	return blk
 }
 
