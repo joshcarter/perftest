@@ -252,6 +252,7 @@ func (r *Reporter) Run(ctx context.Context) {
 		case <-t2.C:
 			if !r.preStop {
 				global.Syncer.Report()
+				r.Infof("object vendor len: %d", len(global.ObjectVendor.objects))
 			}
 		}
 	}
