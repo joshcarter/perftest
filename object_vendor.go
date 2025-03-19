@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -27,10 +28,14 @@ type ObjectVendorConfig struct {
 
 type ObjectVendor struct {
 	*zap.SugaredLogger
-	config     *ObjectVendorConfig
-	seq        *ByteSequence
-	objectPool sync.Pool
+	config  *ObjectVendorConfig
+	seq     *ByteSequence
+	pool    sync.Pool
+	objects chan *Object
+	stop    func()
 }
+
+const maxObjects = 100
 
 // Size spec follows fio 'bsplit' format:
 // "blocksize/percentage:blocksize/percentage:..." For example
@@ -46,13 +51,16 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
+
 	config.Compressibility = compressibility
 
 	b := &ObjectVendor{
 		SugaredLogger: Logger(),
 		config:        config,
 		seq:           NewByteSequence(int64(0)),
-		objectPool: sync.Pool{
+		pool: sync.Pool{
 			New: func() interface{} {
 				return &Object{
 					Id:      ulid.Make(),
@@ -60,16 +68,54 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 				}
 			},
 		},
+		objects: make(chan *Object, maxObjects),
+		stop: func() {
+			cancel()
+			wg.Wait()
+		},
 	}
 
 	b.Infof("object size spec: %s", sizespec)
 	b.Infof("compressibility: %d", compressibility)
 
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go b.run(ctx, i)
+	}
+
 	return b, nil
 }
 
+func (b *ObjectVendor) Stop() {
+	b.stop()
+}
+
 func (b *ObjectVendor) GetObject() *Object {
-	blk := b.objectPool.Get().(*Object)
+	return <-b.objects
+}
+
+func (b *ObjectVendor) ReturnObject(blk *Object) {
+	b.pool.Put(blk)
+}
+
+func (b *ObjectVendor) run(ctx context.Context, n int) {
+	b.Infof("starting object vendor %d", n+1)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		default:
+			if len(b.objects) < maxObjects {
+				b.objects <- b.makeObject()
+			}
+		}
+	}
+}
+
+func (b *ObjectVendor) makeObject() *Object {
+	blk := b.pool.Get().(*Object)
 	blk.Id = ulid.Make() // Need to assign new one every time to prevent recycling
 
 	// slice block down to size
@@ -79,10 +125,6 @@ func (b *ObjectVendor) GetObject() *Object {
 
 	b.seq.PatternFill(blk.Data, b.config.Compressibility)
 	return blk
-}
-
-func (b *ObjectVendor) ReturnObject(blk *Object) {
-	b.objectPool.Put(blk)
 }
 
 func parseSizeSpec(sizespec string) (*ObjectVendorConfig, error) {

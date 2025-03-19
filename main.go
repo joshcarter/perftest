@@ -55,6 +55,7 @@ func main() {
 	viper.SetDefault("reporter.maxWait", "1s")
 	viper.SetDefault("compressibility", "50")
 	viper.SetDefault("subdirs", "0")
+	viper.SetDefault("rw", "write")
 
 	if err = viper.ReadInConfig(); err != nil {
 		fmt.Printf("error reading config file: %s\n", err)
