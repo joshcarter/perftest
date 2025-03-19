@@ -32,6 +32,7 @@ type Globals struct {
 	Syncer        Syncer
 	SyncWhen      SyncWhen
 	IoSize        int64
+	Subdirs       int // each runner will have this many subdirs
 }
 
 var global = &Globals{
@@ -47,7 +48,24 @@ func init() {
 func main() {
 	var err error
 
-	// TODO: set RunID from command line arg
+	viper.SetConfigName("config")
+	viper.AddConfigPath(".")
+	viper.SetDefault("iosize", "1MB")
+	viper.SetDefault("size", "4MB/100/dat")
+	viper.SetDefault("reporter.maxWait", "1s")
+	viper.SetDefault("compressibility", "50")
+	viper.SetDefault("subdirs", "0")
+
+	if err = viper.ReadInConfig(); err != nil {
+		fmt.Printf("error reading config file: %s\n", err)
+		os.Exit(-1)
+	}
+
+	runId := viper.GetString("runid")
+
+	if len(runId) > 0 {
+		global.RunId = runId
+	}
 
 	if err = os.MkdirAll(global.RunId, 0750); err != nil {
 		fmt.Printf("cannot make output directory: %s\n", err)
@@ -55,17 +73,7 @@ func main() {
 	}
 
 	logger := Logger()
-	viper.SetConfigName("config")
-	viper.AddConfigPath(".")
-	viper.SetDefault("iosize", "1MB")
-	viper.SetDefault("size", "4MB/100/dat")
-	viper.SetDefault("reporter.maxWait", "1s")
-	viper.SetDefault("compressibility", "50")
-
-	if err = viper.ReadInConfig(); err != nil {
-		logger.Errorf("error reading config file: %s\n", err)
-		os.Exit(-1)
-	}
+	logger.Infof("starting run %s", global.RunId)
 
 	iosize := viper.GetSizeInBytes("iosize")
 
@@ -82,6 +90,7 @@ func main() {
 	}
 
 	compressibility := viper.GetInt("compressibility")
+	global.Subdirs = viper.GetInt("subdirs")
 
 	global.ObjectVendor, err = NewObjectVendor(sizespec, compressibility)
 
@@ -242,11 +251,11 @@ func Logger() *zap.SugaredLogger {
 		__logLevel = zap.NewAtomicLevel()
 		__logLevel.SetLevel(zap.InfoLevel)
 
-		//config := zap.NewDevelopmentConfig()
-		//config.Level = __logLevel
-		//config.OutputPaths = []string{"stdout", filepath.Join(global.RunId, "log.txt")}
+		// config := zap.NewDevelopmentConfig()
+		// config.Level = __logLevel
+		// config.OutputPaths = []string{"stdout", filepath.Join(global.RunId, "log.txt")}
 		//
-		//__logger, err = config.Build()
+		// __logger, err = config.Build()
 
 		cfg := zap.Config{
 			Encoding:    "console",

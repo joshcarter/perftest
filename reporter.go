@@ -35,8 +35,6 @@ type Reporter struct {
 	samplePool sync.Pool
 	bwtotal    []int64
 	totalBytes int64
-	totalBW    int64
-	startTime  time.Time
 	bwlog      *os.File
 	latlog     *os.File
 }
@@ -60,8 +58,7 @@ func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 				return &Sample{}
 			},
 		},
-		bwtotal:   make([]int64, 0, 1000),
-		startTime: time.Now(),
+		bwtotal: make([]int64, 0, 1000),
 	}
 
 	if e = r.openFiles(); e != nil {
@@ -176,7 +173,6 @@ func (r *Reporter) captureRunState() (e error) {
 // PreStop is used to disable logging before runners are shut down.
 func (r *Reporter) PreStop() {
 	r.preStop = true
-	r.totalBW = int64(float64(r.totalBytes) / time.Since(r.startTime).Seconds())
 }
 
 func (r *Reporter) Stop() {
@@ -185,7 +181,6 @@ func (r *Reporter) Stop() {
 	r.Infof("median bandwidth: %s/sec", SprintSize(Median(r.bwtotal)))
 	r.Infof("mean bandwidth: %s/sec", SprintSize(Mean(r.bwtotal)))
 	r.Infof("total written: %s", SprintSize(r.totalBytes))
-	r.Infof("total bandwidth: %s/sec", SprintSize(r.totalBW))
 }
 
 func (r *Reporter) GetSample() *Sample {
