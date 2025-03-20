@@ -11,6 +11,11 @@ import (
 	"time"
 )
 
+const (
+	Read  = 0 // Match fio's read op
+	Write = 1 // Match fio's write op
+)
+
 type ReporterConfig struct {
 	LatencyEnabled   bool
 	BandwidthEnabled bool
@@ -22,21 +27,24 @@ type ReporterConfig struct {
 type Sample struct {
 	Start  time.Time
 	Finish time.Time
-	Size   int64
+	Op     int
+	Size   int
 }
 
 type Reporter struct {
 	*zap.SugaredLogger
-	config     *ReporterConfig
-	dir        string // directory for log files
-	stop       func()
-	preStop    bool // stop logging if true
-	samples    chan *Sample
-	samplePool sync.Pool
-	bwtotal    []int64
-	totalBytes int64
-	bwlog      *os.File
-	latlog     *os.File
+	config         *ReporterConfig
+	dir            string // directory for log files
+	stop           func()
+	preStop        bool // stop logging if true
+	samples        chan *Sample
+	samplePool     sync.Pool
+	readBandwidth  []int64
+	writeBandwidth []int64
+	readTotal      int64
+	writeTotal     int64
+	bwlog          *os.File
+	latlog         *os.File
 }
 
 func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
@@ -58,7 +66,8 @@ func NewReporter(config *ReporterConfig) (r *Reporter, e error) {
 				return &Sample{}
 			},
 		},
-		bwtotal: make([]int64, 0, 1000),
+		readBandwidth:  make([]int64, 0, 1000),
+		writeBandwidth: make([]int64, 0, 1000),
 	}
 
 	if e = r.openFiles(); e != nil {
@@ -178,9 +187,18 @@ func (r *Reporter) PreStop() {
 func (r *Reporter) Stop() {
 	r.stop()
 	r.Infof("stopped")
-	r.Infof("median bandwidth: %s/sec", SprintSize(Median(r.bwtotal)))
-	r.Infof("mean bandwidth: %s/sec", SprintSize(Mean(r.bwtotal)))
-	r.Infof("total written: %s", SprintSize(r.totalBytes))
+
+	if r.readTotal > 0 {
+		r.Infof("read bandwidth (median): %s/sec", SprintSize(Median(r.readBandwidth)))
+		r.Infof("read bandwidth (mean): %s/sec", SprintSize(Mean(r.readBandwidth)))
+		r.Infof("total read: %s", SprintSize(r.readTotal))
+	}
+
+	if r.writeTotal > 0 {
+		r.Infof("write bandwidth (median): %s/sec", SprintSize(Median(r.writeBandwidth)))
+		r.Infof("write bandwidth (mean): %s/sec", SprintSize(Mean(r.writeBandwidth)))
+		r.Infof("total written: %s", SprintSize(r.writeTotal))
+	}
 }
 
 func (r *Reporter) GetSample() *Sample {
@@ -189,9 +207,10 @@ func (r *Reporter) GetSample() *Sample {
 	return s
 }
 
-func (r *Reporter) CaptureSample(s *Sample, size int64) {
+func (r *Reporter) CaptureSample(s *Sample, size int, op int) {
 	s.Finish = time.Now()
 	s.Size = size
+	s.Op = op
 	r.samples <- s
 }
 
@@ -203,7 +222,8 @@ func (r *Reporter) Run(ctx context.Context) {
 	}
 
 	r.Infof("running")
-	intervalBytes := int64(0)
+	intervalReadBytes := int64(0)
+	intervalWriteBytes := int64(0)
 	startTime := time.Now()
 	lastReportTime := startTime
 
@@ -218,13 +238,22 @@ func (r *Reporter) Run(ctx context.Context) {
 			return
 
 		case sample := <-r.samples:
-			intervalBytes += sample.Size
-			r.totalBytes += sample.Size
+			switch sample.Op {
+			case Read:
+				intervalReadBytes += int64(sample.Size)
+				r.readTotal += int64(sample.Size)
+			case Write:
+				intervalWriteBytes += int64(sample.Size)
+				r.writeTotal += int64(sample.Size)
+			default:
+				r.Errorf("unknown op: %d", sample.Op)
+			}
 
-			if r.latlog != nil && !r.preStop {
-				fmt.Fprintf(r.latlog, "%.3f, %.6f, %d\n",
+			if r.latlog != nil && !r.preStop && sample.Size > 0 {
+				fmt.Fprintf(r.latlog, "%.3f, %.6f, %d, %d\n",
 					sample.Finish.Sub(startTime).Seconds(),
 					sample.Finish.Sub(sample.Start).Seconds(),
+					sample.Op,
 					sample.Size)
 			}
 
@@ -236,18 +265,29 @@ func (r *Reporter) Run(ctx context.Context) {
 
 				// Convert from accumulated bytes in the interval to the
 				// rate (bytes/sec) for that interval
-				rate := int64(float64(intervalBytes) / interval)
-				r.Infof("bandwidth: %s/sec", SprintSize(rate))
+				readBandwidth := int64(float64(intervalReadBytes) / interval)
+				r.readBandwidth = append(r.readBandwidth, readBandwidth)
 
-				r.bwtotal = append(r.bwtotal, rate)
+				if readBandwidth > 1 {
+					r.Infof("read bandwidth:  %s/sec", SprintSize(readBandwidth))
+				}
+
+				writeBandwidth := int64(float64(intervalWriteBytes) / interval)
+				r.writeBandwidth = append(r.writeBandwidth, writeBandwidth)
+
+				if writeBandwidth > 1 {
+					r.Infof("write bandwidth: %s/sec", SprintSize(writeBandwidth))
+				}
 
 				if r.bwlog != nil {
-					fmt.Fprintf(r.bwlog, "%.3f, %d\n", tick.Sub(startTime).Seconds(), rate)
+					fmt.Fprintf(r.bwlog, "%.3f, %d, %d\n", tick.Sub(startTime).Seconds(), Read, readBandwidth)
+					fmt.Fprintf(r.bwlog, "%.3f, %d, %d\n", tick.Sub(startTime).Seconds(), Write, writeBandwidth)
 				}
 			}
 
 			lastReportTime = tick
-			intervalBytes = int64(0)
+			intervalWriteBytes = int64(0)
+			intervalReadBytes = int64(0)
 
 		case <-t2.C:
 			if !r.preStop {

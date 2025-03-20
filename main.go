@@ -33,6 +33,7 @@ type Globals struct {
 	SyncWhen      SyncWhen
 	IoSize        int64
 	Subdirs       int // each runner will have this many subdirs
+	ReadPercent   int // range 0-100
 }
 
 var global = &Globals{
@@ -55,7 +56,7 @@ func main() {
 	viper.SetDefault("reporter.maxWait", "1s")
 	viper.SetDefault("compressibility", "50")
 	viper.SetDefault("subdirs", "0")
-	viper.SetDefault("rw", "write")
+	viper.SetDefault("read", "0")
 
 	if err = viper.ReadInConfig(); err != nil {
 		fmt.Printf("error reading config file: %s\n", err)
@@ -92,6 +93,14 @@ func main() {
 
 	compressibility := viper.GetInt("compressibility")
 	global.Subdirs = viper.GetInt("subdirs")
+	global.ReadPercent = viper.GetInt("read")
+
+	if global.ReadPercent < 0 || global.ReadPercent > 100 {
+		logger.Errorf("read percent must be between 0 and 100")
+		os.Exit(-1)
+	}
+
+	logger.Infof("read percent: %d", global.ReadPercent)
 
 	global.ObjectVendor, err = NewObjectVendor(sizespec, compressibility)
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go.uber.org/zap"
 	"io"
+	"math/rand"
 )
 
 type Runner struct {
@@ -44,9 +45,7 @@ func (r *Runner) Run(ctx context.Context) {
 			return
 
 		default:
-			err := r.WriteObject(ctx)
-
-			if err != nil {
+			if err := r.Op(ctx); err != nil {
 				select {
 				case r.errchan <- err:
 					// error sent
@@ -54,6 +53,20 @@ func (r *Runner) Run(ctx context.Context) {
 					// error chan was full, discard
 				}
 			}
+		}
+	}
+}
+
+func (r *Runner) Op(ctx context.Context) error {
+	if global.ReadPercent == 0 {
+		return r.WriteObject(ctx)
+	} else if global.ReadPercent == 100 {
+		return r.ReadObject(ctx)
+	} else {
+		if rand.Intn(100) < global.ReadPercent {
+			return r.ReadObject(ctx)
+		} else {
+			return r.WriteObject(ctx)
 		}
 	}
 }
@@ -89,11 +102,9 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 			iosize = remaining
 		}
 
-		// r.Infof("writing '%s': %d bytes, %d remaining", blk.Id, iosize, remaining)
-
 		sample := r.reporter.GetSample()
 		bw, e = wr.Write(blk.Data[offset : offset+iosize])
-		r.reporter.CaptureSample(sample, int64(bw))
+		r.reporter.CaptureSample(sample, bw, Write)
 
 		remaining -= bw
 		offset += iosize
@@ -124,4 +135,47 @@ func (r *Runner) WriteObject(ctx context.Context) (e error) {
 	// r.Infof("wrote block '%s'", blk.Id)
 
 	return
+}
+
+func (r *Runner) ReadObject(ctx context.Context) (e error) {
+	name, e := r.objectStore.RandomExistingObjectName()
+
+	if e != nil {
+		return e
+	}
+
+	rr, e := r.objectStore.GetReader(name)
+
+	if e != nil {
+		return fmt.Errorf("cannot get block reader: %s", e)
+	}
+
+	defer func() {
+		if e == nil {
+			e = rr.Close()
+		} else {
+			_ = rr.Close() // attempt to close, but don't nuke existing error
+		}
+	}()
+
+	buf := make([]byte, int(r.iosize))
+
+	for len(ctx.Done()) == 0 {
+		var br int
+
+		sample := r.reporter.GetSample()
+		br, e = rr.Read(buf)
+		r.reporter.CaptureSample(sample, br, Read)
+
+		if e == io.EOF {
+			e = nil
+			break
+		}
+		if e != nil {
+			r.Errorf("read: %s", e)
+			return
+		}
+	}
+
+	return nil
 }
