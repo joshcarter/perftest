@@ -234,6 +234,8 @@ func startFileRunners(rl *RunnerList) (err error) {
 			return fmt.Errorf("cannot init store: %s", err)
 		}
 
+		logger.Infof("file object store: %s", path)
+
 		rl.AddStore(o)
 
 		for j := 0; j < runnersPerPath; j++ {

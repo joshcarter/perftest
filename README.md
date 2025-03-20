@@ -4,9 +4,15 @@ I/O performance test (currently just file writes) in Go. Run `./perftest` from a
 
 ## TODO ##
 
-IMPROVE:
+FIX:
 
-- Specify runId on command line.
+- Print when scanning existing files.
+
+- Written objects should go into ObjectStore.objects after close.
+
+- Should bandwidth numbers be biased based on read percent?
+
+IMPROVE:
 
 - Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
   while other writers are waiting for their fsync to finish.
