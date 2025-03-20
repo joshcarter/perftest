@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"math/rand"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,13 +27,10 @@ type ObjectVendorConfig struct {
 
 type ObjectVendor struct {
 	*zap.SugaredLogger
-	config  *ObjectVendorConfig
-	pool    sync.Pool
-	objects chan *Object
-	stop    func()
+	config *ObjectVendorConfig
+	pool   sync.Pool
+	seq    *ByteSequence
 }
-
-const maxObjects = 100
 
 // Size spec follows fio 'bsplit' format:
 // "blocksize/percentage:blocksize/percentage:..." For example
@@ -51,9 +46,6 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 		return nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-
 	config.Compressibility = compressibility
 
 	b := &ObjectVendor{
@@ -67,56 +59,16 @@ func NewObjectVendor(sizespec string, compressibility int) (*ObjectVendor, error
 				}
 			},
 		},
-		objects: make(chan *Object, maxObjects),
-		stop: func() {
-			cancel()
-			wg.Wait()
-		},
+		seq: NewByteSequence(0),
 	}
 
 	b.Infof("object size spec: %s", sizespec)
 	b.Infof("compressibility: %d", compressibility)
 
-	vendors := max(1, runtime.NumCPU()/4)
-	for i := 0; i < vendors; i++ {
-		wg.Add(1)
-		go b.run(ctx, i)
-	}
-
 	return b, nil
 }
 
-func (b *ObjectVendor) Stop() {
-	b.stop()
-}
-
 func (b *ObjectVendor) GetObject() *Object {
-	return <-b.objects
-}
-
-func (b *ObjectVendor) ReturnObject(blk *Object) {
-	b.pool.Put(blk)
-}
-
-func (b *ObjectVendor) run(ctx context.Context, n int) {
-	b.Infof("starting object vendor %d", n+1)
-	seq := NewByteSequence(int64(0))
-	seq.Seed(uint64(n))
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		default:
-			if len(b.objects) < maxObjects {
-				b.objects <- b.makeObject(seq)
-			}
-		}
-	}
-}
-
-func (b *ObjectVendor) makeObject(seq *ByteSequence) *Object {
 	blk := b.pool.Get().(*Object)
 	blk.Id = ulid.Make() // Need to assign new one every time to prevent recycling
 
@@ -125,8 +77,12 @@ func (b *ObjectVendor) makeObject(seq *ByteSequence) *Object {
 	blk.Data = blk.dataBuf[:size]
 	blk.Extension = b.config.Extensions[size]
 
-	seq.PatternFill(blk.Data, b.config.Compressibility)
+	b.seq.PatternFill(blk.Data, b.config.Compressibility)
 	return blk
+}
+
+func (b *ObjectVendor) ReturnObject(blk *Object) {
+	b.pool.Put(blk)
 }
 
 func parseSizeSpec(sizespec string) (*ObjectVendorConfig, error) {
