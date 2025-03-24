@@ -6,13 +6,15 @@ I/O performance test (currently just file writes) in Go. Run `./perftest` from a
 
 FIX:
 
-- Print when scanning existing files.
-
 - Written objects should go into ObjectStore.objects after close.
+
+IMPROVE:
 
 - Should bandwidth numbers be biased based on read percent?
 
-IMPROVE:
+- Write file under temp name and rename into place after?
+
+- Add deletes?
 
 - Should we be starting a new runner once one has reached the "finished writing" stage? So that more IO can continue
   while other writers are waiting for their fsync to finish.

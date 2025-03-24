@@ -37,6 +37,8 @@ func NewRunner(os ObjectStore, n int) (*Runner, error) {
 }
 
 func (r *Runner) Run(ctx context.Context) {
+	<-global.Start
+
 	r.Infof("running")
 
 	for {

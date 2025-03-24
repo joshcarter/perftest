@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -32,8 +33,9 @@ type Globals struct {
 	Syncer        Syncer
 	SyncWhen      SyncWhen
 	IoSize        int64
-	Subdirs       int // each runner will have this many subdirs
-	ReadPercent   int // range 0-100
+	Subdirs       int           // each runner will have this many subdirs
+	ReadPercent   int           // range 0-100
+	Start         chan struct{} // close to start reporters and runners
 }
 
 var global = &Globals{
@@ -44,6 +46,7 @@ var global = &Globals{
 func init() {
 	global.RunId = time.Now().Format("2006-01-02-15-04-05")
 	global.RunnerInitFns = append(global.RunnerInitFns, startFileRunners)
+	global.Start = make(chan struct{})
 }
 
 func main() {
@@ -60,6 +63,15 @@ func main() {
 
 	if err = viper.ReadInConfig(); err != nil {
 		fmt.Printf("error reading config file: %s\n", err)
+		os.Exit(-1)
+	}
+
+	pflag.String("runid", "", "unique name for this run")
+	pflag.Int("read", 0, "set read percent (0-100)")
+	pflag.Parse()
+
+	if err = viper.BindPFlags(pflag.CommandLine); err != nil {
+		fmt.Printf("error binding flags: %s\n", err)
 		os.Exit(-1)
 	}
 
@@ -146,6 +158,8 @@ func main() {
 		os.Exit(-1)
 	}
 
+	close(global.Start)
+
 	logger.Infof("running... press Control-C to stop.")
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -230,11 +244,11 @@ func startFileRunners(rl *RunnerList) (err error) {
 	for i, path := range paths {
 		var o ObjectStore
 
+		logger.Infof("initializing file object store: %s", path)
+
 		if o, err = NewFileObjectStore(path, openFlags); err != nil {
 			return fmt.Errorf("cannot init store: %s", err)
 		}
-
-		logger.Infof("file object store: %s", path)
 
 		rl.AddStore(o)
 

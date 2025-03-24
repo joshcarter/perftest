@@ -217,11 +217,13 @@ func (r *Reporter) CaptureSample(s *Sample, size int, op int) {
 func (r *Reporter) Run(ctx context.Context) {
 	defer r.closeFiles()
 
+	<-global.Start
+
 	if e := r.warmUp(ctx); e != nil {
 		return
 	}
 
-	r.Infof("running")
+	r.Infof("reporter running")
 	intervalReadBytes := int64(0)
 	intervalWriteBytes := int64(0)
 	startTime := time.Now()
